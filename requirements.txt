@@ -1,0 +1,11 @@
+natsort==7.1.1
+hmmlearn==0.2.7
+pip==9.0.1
+pandas==1.1.5
+matplotlib==3.3.3
+scipy==1.5.4
+seaborn==0.11.1
+pybedtools==0.8.2
+numpy==1.19.5
+adjustText==0.7.3
+PyYAML==6.0

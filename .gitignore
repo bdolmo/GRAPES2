@@ -1,0 +1,6 @@
+*.o
+test_dataset/
+test_lic/
+test_multiple/
+test_single_del/
+tmp_test/
