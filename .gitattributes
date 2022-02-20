@@ -6,3 +6,7 @@
 *.sh linguist-detectable=false
 *.bash linguist-detectable=false
 Makefile* linguist-detectable=false
+*.1 linguist-language=text
+*.2 linguist-language=text
+*.js linguist-detectable=false
+

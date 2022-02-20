@@ -45,7 +45,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
 
 
         # if not os.path.isfile(ratio_file):
-        if  os.path.isfile(ratio_file):
+        if not os.path.isfile(ratio_file):
 
             sample_ratio = ("{}_ratio").format(sample.name)
             normalized_depth_tag = ("{}_normalized_final").format(sample.name)
