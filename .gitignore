@@ -1,4 +1,5 @@
 *.o
+annotations/
 test_dataset/
 test_lic/
 test_multiple/

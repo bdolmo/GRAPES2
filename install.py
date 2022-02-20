@@ -5,8 +5,23 @@ import sys
 import subprocess
 # import argparse
 import yaml
+import wget
 
 curr_dir = os.getcwd()
+
+
+def download_annotations():
+    '''
+        Download annotation files
+    '''
+    ann_dir = curr_dir + "/annotations/mappability"
+    if not os.path.isdir(ann_dir):
+        os.mkdir(ann_dir)
+    mappability_hg19_name = "wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz"
+    mappability_hg19_file = ann_dir + "/" + mappability_hg19_name
+    cmd = "wget https://www.dropbox.com/s/3hnvpczq9sbown6/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=0 -O {}".format(mappability_hg19_file)
+    p1 = subprocess.run(cmd, shell=True, stdout=sys.stdout,
+    stderr=subprocess.PIPE)
 
 def execute_setup():
     '''
@@ -60,6 +75,8 @@ def build_cpp():
 
 
 if __name__ == "__main__":
+    download_annotations()
+    sys.exit()
     build_cpp()
     sys.exit()
     execute_setup()

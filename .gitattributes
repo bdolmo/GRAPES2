@@ -4,3 +4,5 @@
 *.h linguist-detectable=false
 *.pl linguist-detectable=false
 *.sh linguist-detectable=false
+*.bash linguist-detectable=false
+Makefile* linguist-detectable=false
