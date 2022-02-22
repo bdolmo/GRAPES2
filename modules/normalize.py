@@ -29,19 +29,69 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
         median_depth = round(df[sample.name].median(), 2)
         sample.add('median_depth', median_depth)
 
-    # Normalize by GC-content
-    norm_factors = ['gc']
-    df = normalize(analysis_dict, sample_list,  norm_factors)
-
-    # Export normalized coverage
+    # Normalize exon-level coverage by GC-content
     normalized_depth_name = ("{}.normalized.depth.bed").format(analysis_dict['output_name'])
     normalized_depth = str(Path(analysis_dict['output_dir']) / normalized_depth_name)
-    df.to_csv(normalized_depth, sep="\t", mode='w', index=None)
-
     analysis_dict['normalized_depth'] = normalized_depth
+
+    norm_factors = ['gc']
+    if not os.path.isfile(normalized_depth):
+        df = normalize_exon_level(analysis_dict, sample_list,  norm_factors)
+        df.to_csv(normalized_depth, sep="\t", mode='w', index=None)
+
+    # Export exon level normalized coverage
+    normalized_per_base_name = ("{}.normalized.per.base.bed").format(analysis_dict['output_name'])
+    normalized_per_base_file = str(Path(analysis_dict['output_dir']) / normalized_per_base_name)
+    analysis_dict['normalized_per_base'] = normalized_per_base_file
+    if not os.path.isfile(normalized_per_base_file):
+        sample_list, analysis_dict = normalize_per_base(sample_list, analysis_dict, norm_factors)
 
     return sample_list, analysis_dict
 
+
+def normalize_per_base(sample_list, analysis_dict, fields):
+    '''
+    '''
+    fields_str = ','.join(fields)
+    msg = (" INFO: Normalizing per base coverage by {}").format(fields_str)
+    logging.info(msg)
+
+    normalized_per_base_name = ("{}.normalized.per.base.bed").format(analysis_dict['output_name'])
+    normalized_per_base_file = str(Path(analysis_dict['output_dir']) / normalized_per_base_name)
+    analysis_dict['normalized_per_base'] = normalized_per_base_file
+
+    sample_stats = defaultdict(dict)
+    for sample in sample_list:
+        sample_stats[sample.name]['MEAN_COVERAGE'] = sample.mean_coverage
+        sample_stats[sample.name]['MEAN_COVERAGEX']= sample.mean_coverage_X
+
+    sample_idx = {}
+    o = open(normalized_per_base_file, 'w')
+    with open (analysis_dict['per_base_coverage']) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            tmp = line.split("\t")
+            chromosome = tmp[0]
+            if line.startswith("chr\tstart"):
+                o.write(line+"\n")
+                for i in range(6, len(tmp)):
+                    sample_name = tmp[i]
+                    sample_idx[i] = sample_name
+            else:
+                gc = int(float(tmp[4]))
+                norm_list = []
+                for i in range(6, len(tmp)):
+                    sample_name  = sample_idx[i]
+                    raw_coverage = int(tmp[i])
+                    if 'X' in chromosome:
+                        normalized_lib = str(round(raw_coverage/sample_stats[sample_name]['MEAN_COVERAGEX'],3))
+                    else:
+                        normalized_lib = str(round(raw_coverage/sample_stats[sample_name]['MEAN_COVERAGE'],3))
+                    norm_list.append(normalized_lib)
+                o.write('\t'.join(tmp[0:6])+"\t"+'\t'.join(norm_list)+"\n")
+    o.close()
+
+    return sample_list, analysis_dict
 
 def norm_by_lib(row, sample_name, total_reads):
     '''
@@ -51,14 +101,14 @@ def norm_by_lib(row, sample_name, total_reads):
     norm_lib = round(10e2*(norm_by_len/total_reads),3)
     return norm_lib
 
-def normalize(analysis_dict, sample_list, fields):
+def normalize_exon_level(analysis_dict, sample_list, fields):
     '''
     '''
 
     df = pd.read_csv(analysis_dict['unified_raw_depth'], sep="\t")
 
     fields_str = ','.join(fields)
-    msg = (" INFO: Normalizing {}").format(fields_str)
+    msg = (" INFO: Normalizing exon level coverage by {}").format(fields_str)
     logging.info(msg)
 
     for sample in sample_list:

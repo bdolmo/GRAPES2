@@ -11,7 +11,7 @@ from modules.plot import plot_normalization, CnvPlot, plot_gene
 from modules.cluster import launch_sample_clustering
 from modules.ratio import calculate_coverage_ratios
 from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
-from modules.call import call_cnvs, call_cnvs_2, export_all_calls
+from modules.call import call_cnvs, call_raw_segmented_cnvs, call_raw_single_exon_cnv, unify_raw_calls, export_all_calls
 from modules.hmm import calculate_positional_mean_variance, CustomHMM
 
 import numpy as np
@@ -54,17 +54,23 @@ def main(args):
     # calculate ratios
     sample_list, analysis_dict = calculate_coverage_ratios(sample_list, analysis_dict)
 
-    genes = analysis_dict['list_genes_to_plot']
-    for gene in genes:
-        for sample in sample_list:
-            plot_gene(sample.name, sample_list, gene, analysis_dict)
-    sys.exit()
+    # genes = analysis_dict['list_genes_to_plot']
+    # for gene in genes:
+    #     for sample in sample_list:
+    #         plot_gene(sample.name, sample_list, gene, analysis_dict)
 
     # obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
     sample_list = custom_hmm_seg(sample_list, analysis_dict)
+    sample_list = call_raw_segmented_cnvs(sample_list, args.upper_del_cutoff,
+        args.lower_dup_cutoff)
+    sample_list = call_raw_single_exon_cnv(sample_list, args.upper_del_cutoff,
+        args.lower_dup_cutoff)
+    sample_list = unify_raw_calls(sample_list)
+    sys.exit()
 
-    sample_list = call_cnvs_2(sample_list, -0.621, 0.433)
-    export_all_calls(sample_list, analysis_dict)
+
+
+    sample_list = export_all_calls(sample_list, analysis_dict)
     # sample_list = call_cnvs(sample_list, -0.621, 0.433, 2.58)
 
     for sample in sample_list:
@@ -75,8 +81,8 @@ def main(args):
             calls     = ".",
             sample    = sample.name,
             output_dir= sample.sample_folder,
-            dup_cutoff = 0.433,
-            del_cutoff = -0.621
+            dup_cutoff = args.lower_dup_cutoff,
+            del_cutoff =args.upper_del_cutoff
         )
         # Plotting genomewide CNV profile
         sample_plot = cnp.plot_genomewide(genomewide=True, by_chr=False)
@@ -96,10 +102,10 @@ def parse_arguments():
         help="Database directory harbouring sqlite files")
     parser.add_argument("-f", "--fasta", required=True, type=str,
         help="Genome reference in FASTA format", dest='reference')
-    parser.add_argument("--upper_del_cutoff", type=float, default=-0.5,
+    parser.add_argument("--upper_del_cutoff", type=float, default=-0.621,
         help=".", dest='upper_del_cutoff')
-    parser.add_argument("--lower_del_cutoff", type=float, default=-1.5,
-        help=".", dest='lower_del_cutoff')
+    parser.add_argument("--lower_dup_cutoff", type=float, default=0.433,
+        help=".", dest='lower_dup_cutoff')
     parser.add_argument('--plot_normalization', default=False,
         help="Plot depth normalization")
     parser.add_argument('--plot_gene', default=None,

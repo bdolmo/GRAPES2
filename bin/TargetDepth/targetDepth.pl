@@ -202,7 +202,6 @@ Help () if (@ARGV<1 or !GetOptions(
 
  if (!-e $summary || -z $summary ) {
 	 print " ERROR: missing $summary file\n";
-
  }
 
  if (-e $summary ) {
@@ -219,16 +218,19 @@ Help () if (@ARGV<1 or !GetOptions(
 	foreach my $line (@tmpStr) {
 
 		my ($sample, $reads_on_target, $reads_X, $mean_coverage, $mean_counts,
-			$mean_isize, $sd_isize, $mean_coverage_X, $mean_counts_X) = split (/\t/, $line);
+		$mean_isize, $sd_isize, $mean_coverage_X, $mean_counts_X) = split (/\t/, $line);
+
 		my $outsample = $sample;
 		$outsample =~s/.bam//;
 		if ($samtools) {
 			my @samplePaths = grep ($_=~/$sample/, @bams);
-
-       		my $total_reads = `$samtools idxstats $samplePaths[0] | awk '{i+=\$3} END {print i}'`;
+      my $total_reads = `$samtools idxstats $samplePaths[0] | awk '{i+=\$3} END {print i}'`;
 			chomp $total_reads;
 
-			my $roi = sprintf "%.2f", 100* ($reads_on_target/$total_reads);
+			my $roi = 0;
+			if ($total_reads > 0) {
+				$roi = sprintf "%.2f", 100* ($reads_on_target/$total_reads);
+			}
 			print IN "$outsample\t$total_reads\t$reads_on_target\t$reads_X\t$roi\t$mean_coverage\t$mean_counts\t$mean_isize\t$sd_isize\t$mean_coverage_X\t$mean_counts_X\n";
 		}
 		else {
@@ -239,7 +241,6 @@ Help () if (@ARGV<1 or !GetOptions(
 	#`$rm $summary`;
 	rename $newSummary, $summary ;
  }
-
 
  # Merging temporal files
  my @countFiles    = glob ("$outdir/*_counts.bed");
@@ -252,7 +253,6 @@ Help () if (@ARGV<1 or !GetOptions(
  #my $masterIsizes = "$outdir/$outName.InsertSizes.bed";
 
  # Getting coordinates
-
  if($report_counts) {
  	`$cat $countFiles[0] | $cut -f 1,2,3,4,5,6 > $outdir/coords1.txt`;
  }
@@ -283,19 +283,6 @@ Help () if (@ARGV<1 or !GetOptions(
 	 @tmps = ();
 	 @samp = ();
 	 $str = "";
-	# foreach my $is (@isizeFiles) {
-	#	my $sample = basename($is);
-	#	$sample=~s/_isizes.bed//;
-	#	$sample=~s/.bam//;
-	#	push @samp, "$sample\_Mean_Isize";
-	#	push @samp, "$sample\_SD_Isize";
-	#	`$cat $is | $cut -f 6,7 > $is.tmp`;
-	#	push @tmps, "$is.tmp";
-	# }
-	# $str = join ("\t", @samp);
-	# $header = "chr\tstart\tend\texon\t\%GC\t$str";
-	# `$paste $outdir/coords2.txt @tmps > $masterIsizes `;
-	# `$sed -i '1i\'"$header" $masterIsizes`;
  }
  if ($report_coverage) {
 	 @tmps = ();

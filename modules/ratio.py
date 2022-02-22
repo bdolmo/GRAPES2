@@ -61,7 +61,10 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             df_list.append(new_df)
             # Write dataframe as bed
             new_df.to_csv(ratio_file, sep="\t", mode='w', index=None)
-
+        else:
+            new_df = pd.read_csv(ratio_file, sep="\t")
+            df_list.append(new_df)
+            
     result = reduce(lambda df1,df2: pd.merge(df1,df2,on=["chr", "start", "end", "exon", "gc", "map"]), df_list)
     result.to_csv(all_ratios, sep="\t", mode='w', index=None)
     analysis_dict['all_ratios'] = all_ratios

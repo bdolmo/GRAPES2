@@ -142,7 +142,7 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         axes.axhline(0.433, ls='--', color='blue')
         axes.axhline(-0.621, ls='--', color='red')
         axes.set_xticklabels(axes.get_xticklabels(),rotation = 90)
-        axes.set(ylim=(-1,max_ratio))
+        axes.set(ylim=(min_ratio,max_ratio))
         axes.set(ylabel='log2 ratio')
 
         fig.savefig(gene_plot, bbox_inches="tight")

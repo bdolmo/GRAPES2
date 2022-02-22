@@ -15,7 +15,6 @@ import subprocess
 from hmmlearn import hmm
 from modules.hmm import calculate_positional_mean_variance, CustomHMM
 
-
 def custom_hmm_seg(sample_list, analysis_dict):
     '''
     '''
@@ -29,11 +28,15 @@ def custom_hmm_seg(sample_list, analysis_dict):
         segment_file_name = ("{}.segment.bed").format(sample.name)
         segment_file = str(Path(sample.sample_folder)/segment_file_name)
         sample.add("segment_file", segment_file)
-        o = open(segment_file, 'w')
 
         segment_file_extended_name = ("{}.extended.segment.bed").format(sample.name)
         segment_file_extended = str(Path(sample.sample_folder)/segment_file_extended_name)
         sample.add("segment_extended_file", segment_file_extended)
+
+        if os.path.isfile(segment_file):
+            continue
+
+        o = open(segment_file, 'w')
         p = open(segment_file_extended, 'w')
 
         msg = (" INFO: segmenting sample {}").format(sample.name)
@@ -73,7 +76,6 @@ def custom_hmm_seg(sample_list, analysis_dict):
         p.close()
 
     return sample_list
-
 
 def gaussian_hmm(sample_list):
     '''
@@ -154,7 +156,6 @@ def merge_segments(unmerged_list):
             continue
         second_dict = region
         if first_dict['state'] == second_dict['state']:
-            # print(str(first_dict['state']) + " " +str(second_dict['state']))
             if first_dict is not second_dict:
                 merging_items.append(second_dict)
         else:
@@ -175,6 +176,7 @@ def merge_segments(unmerged_list):
                 'start' : min_start,
                 'end'   : max_end,
                 'region': ','.join(region_list),
+                'n_regions': str(len(region_list)),
                 'log2_ratio': mean_ratio,
                 'state': first_dict['state']
             }
@@ -204,6 +206,7 @@ def merge_segments(unmerged_list):
             'start' : min_start,
             'end'   : max_end,
             'region': ','.join(region_list),
+            'n_regions': str(len(region_list)),
             'log2_ratio': mean_ratio,
             'state': first_dict['state']
         }

@@ -23,17 +23,25 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     '''
 
     analysis_dict = annotate_gc(analysis_dict)
-    # analysis_dict = annotate_gc(analysis_dict)
 
     analysis_dict = annotate_mappability(analysis_dict, ann_dict)
     unified_depth_name = ("{}.read.counts.bed").format(analysis_dict['output_name'])
     unified_raw_depth = str(Path(analysis_dict['output_dir']) / unified_depth_name)
     analysis_dict['unified_raw_depth'] = unified_raw_depth
 
-    cmd = ('{} -i {} -o {} -n {} -g {} -b {} -c -t {}') .format(ngs_utils_dict['targetdepth'],\
+    per_base_coverage_name = ("{}.per.base.coverage.bed").format(analysis_dict['output_name'])
+    per_base_coverage_file = str(Path(analysis_dict['output_dir']) / per_base_coverage_name)
+    analysis_dict['per_base_coverage'] = per_base_coverage_file
+
+    cmd = ('{} -i {} -o {} -n {} -g {} -b {} -t {} -c -d ') .format(ngs_utils_dict['targetdepth'],\
         analysis_dict['bam_dir'], analysis_dict['output_dir'], analysis_dict['output_name'],
         analysis_dict['reference'], analysis_dict['ready_bed'], analysis_dict['threads'])
-    if not os.path.isfile(unified_raw_depth):
+
+    if not os.path.isfile(unified_raw_depth) and not os.path.isfile(per_base_coverage_file):
+
+        msg = (" INFO: Extracting coverage for {} samples").format(analysis_dict['output_name'])
+        logging.info(msg)
+
         p1 = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE)
         output = p1.stdout.decode('UTF-8')
@@ -50,7 +58,11 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
             sample_name = tmp[0]
             for sample in sample_list:
                 if sample.name == sample_name:
+                    # SAMPLE	TOTAL_READS	READS_ON_TARGET	READS_CHRX	%ROI	MEAN_COVERAGE	MEAN_COUNTS	MEAN_ISIZE	SD_ISIZE	MEAN_COVERAGE_X	MEAN_COUNTS_X
+                    # sample4.simulated	2381543	1317437	0	55.32	259932	842.89	199213	66.2174	-nan	-nan
                     sample.add('ontarget_reads', int(tmp[2]))
+                    sample.add('mean_coverage', float(tmp[5]))
+                    sample.add('mean_coverage_X', float(tmp[9]))
         f.close()
     return sample_list, analysis_dict
 
