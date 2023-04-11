@@ -14,28 +14,28 @@ import pybedtools
 
 
 def annotate_gc(analysis_dict):
-    '''
-        Add gc content
-    '''
-    bed = analysis_dict['bed']
+    """
+    Add gc content
+    """
+    bed = analysis_dict["bed"]
 
     gc_bed_name = os.path.basename(bed).replace(".bed", ".gc.bed")
-    gc_bed = str(Path(analysis_dict['output_dir']) / gc_bed_name)
+    gc_bed = str(Path(analysis_dict["output_dir"]) / gc_bed_name)
 
     msg = " INFO: Extracting gc content for roi file {}".format(bed)
     a = pybedtools.BedTool(bed)
-    b = a.nucleotide_content(fi=analysis_dict['reference'], pattern="CG", C=True)
+    b = a.nucleotide_content(fi=analysis_dict["reference"], pattern="CG", C=True)
 
-    o = open(gc_bed, 'w')
+    o = open(gc_bed, "w")
     for line in iter(b):
         line = str(line)
         line = line.rstrip()
-        tmp  = line.split('\t')
-        tmp[5] = str(round(100*float(tmp[5]), 2))
-        indices = [0,1,2,3,5]
+        tmp = line.split("\t")
+        tmp[5] = str(round(100 * float(tmp[5]), 2))
+        indices = [0, 1, 2, 3, 5]
         new_line = "\t".join([tmp[i] for i in indices])
-        o.write(new_line + '\n')
+        o.write(new_line + "\n")
     o.close()
 
-    analysis_dict['gc_bed'] = gc_bed
+    analysis_dict["gc_bed"] = gc_bed
     return analysis_dict

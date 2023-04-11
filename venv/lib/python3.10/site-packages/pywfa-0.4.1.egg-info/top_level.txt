@@ -1,0 +1,3 @@
+pywfa
+pywfa/WFA2_lib
+pywfa/tests
