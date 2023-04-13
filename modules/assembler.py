@@ -1,7 +1,7 @@
 import os
 import sys
 import random
-import edlib
+# import edlib
 from Bio import Align
 from Bio.Seq import Seq
 
@@ -57,8 +57,7 @@ class OverlapAssembler():
                         max_overlap = overlap
                         max_read = read2
                         contig = subseq1+subseq2
-            # print(max_read, max_overlap, contig )
-            # print()
+
             return read1, max_read, max_overlap, contig
 
     def compute_overlaps(self):
@@ -72,7 +71,6 @@ class OverlapAssembler():
         contigs = []
         while reads:
             read_a, read_b, olen, contig = self.get_max_overlaps(reads)
-            # if olen == 0:
             is_rev = False
             if not read_b:
                 seq = Seq(read_a)
@@ -80,7 +78,6 @@ class OverlapAssembler():
                 read_a = seq.reverse_complement()
                 reads.insert(0, read_a)
                 read_a, read_b, olen, contig = self.get_max_overlaps(reads)
-                # print("rev", FWD, read_a)
 
             reads.remove(read_a)
             if not read_b:
@@ -91,10 +88,7 @@ class OverlapAssembler():
             if not reads:
                 break
         n = 0
-        # for contig in contigs:
-        #     print(f">{str(n)}seq")
-        #     print(contig)
-        #     n+=1
+ 
         return contigs
 
 class Node():

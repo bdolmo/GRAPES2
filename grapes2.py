@@ -34,7 +34,7 @@ def main(args):
         os.mkdir(os.path.normpath(args.output_dir))
 
     output_name = os.path.basename(os.path.normpath(args.output_dir))
-    log_file_name = ("{}{}").format(output_name, ".grapes2.log")
+    log_file_name = f"{output_name}.grapes.log"
     log_file = str(Path(args.output_dir) / log_file_name)
 
     # logging formatting
@@ -114,9 +114,16 @@ def parse_arguments():
         help="Input directory with bam files to be analyzed",
     )
     parser.add_argument(
-        "--output_dir", dest="output_dir", required=True, help="Output directory"
+        "--output_dir", 
+        dest="output_dir", 
+        required=True, 
+        help="Output directory"
     )
-    parser.add_argument("--bed", dest="bed", required=True, help="BED target regions")
+    parser.add_argument(
+        "--bed", 
+        dest="bed", 
+        required=True, 
+        help="BED target regions")
     parser.add_argument(
         "-t",
         "--threads",
@@ -154,7 +161,9 @@ def parse_arguments():
         dest="lower_dup_cutoff",
     )
     parser.add_argument(
-        "--plot_normalization", default=False, help="Plot depth normalization"
+        "--plot_normalization", 
+        default=False, 
+        help="Plot depth normalization"
     )
     parser.add_argument(
         "--plot_gene",

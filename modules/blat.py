@@ -54,15 +54,13 @@ class Blat:
         """ """
 
         if len(self.seeds) == 1:
-            # print("single seed")
             init_seed = self.seeds[0]
-
+            # print("single seed")
             if init_seed.q_pos > 0:
                 query_prefix = self._query_seq[0:init_seed.q_end+1]
                 aligner = Aligner(self._ref, query_prefix)
                 aln = aligner.affine_semiglobal_alignment()
 
-                # print(aln["pretty_aln"])
                 # Update seed 
                 init_seed.cigar = aln["cigar"]
                 init_seed.q_pos = aln["q_pos"]
@@ -74,7 +72,6 @@ class Blat:
                 query_prefix = self._query_seq[init_seed.q_pos:]
                 aligner = Aligner(self._ref, query_prefix)
                 aln = aligner.affine_semiglobal_alignment()
-                # print(aln['pretty_aln'])
 
                 # Update seed 
                 init_seed.cigar = aln["cigar"]
@@ -90,68 +87,109 @@ class Blat:
 
         stack = self.seeds
         idx = 0
-        while len(stack) > 1:
 
+        while len(stack) > 1:
             curr_seed = stack[0]
             next_seed = stack[1]
-                    
-            if next_seed.q_pos > curr_seed.q_end and next_seed.strand == curr_seed.strand:
+     
+            if next_seed.q_pos > curr_seed.q_end+1:
+
                 if idx == 0:
                     query_between_seeds = self._query_seq[0:next_seed.q_end]
                 else:
                     query_between_seeds = self._query_seq[curr_seed.q_pos:next_seed.q_end]
 
-                aligner = Aligner(self._ref, query_between_seeds)
-                aln = aligner.affine_semiglobal_alignment()
+                ref = self._ref
+                if next_seed.strand != curr_seed.strand:
+                    ref = self._ref_rev
 
-                stack.remove(curr_seed)
-                stack.remove(next_seed)
+                aligner = Aligner(ref, query_between_seeds)
+                if next_seed.strand != curr_seed.strand:
+                    aln = aligner.affine_local_alignment()
+                else:
+                   aln = aligner.affine_semiglobal_alignment()
+    
 
-                next_seed.cigar = aln["cigar"]
-                next_seed.q_pos = aln["q_pos"]
-                next_seed.r_pos = aln["r_pos"]
-                next_seed.seq = query_between_seeds
-                extended_seeds.append(next_seed)
+                new_seed = next_seed
+                new_seed.cigar = aln["cigar"]
+                new_seed.q_pos = aln["q_pos"]
+                new_seed.q_end = aln["q_end"]
+                new_seed.r_pos = aln["r_pos"]
+                new_seed.r_end = aln["r_end"]
+                new_seed.seq = self._query_seq[new_seed.q_pos:new_seed.q_end]
+
+                if new_seed.strand != curr_seed.strand:
+                    extended_seeds.append(curr_seed)
+                    extended_seeds.append(new_seed)
+                    stack.remove(curr_seed)
+                    stack.remove(next_seed)
+                else:
+                    extended_seeds.append(new_seed)
+                    extended_seeds.append(curr_seed)
+
+                    stack.remove(curr_seed)
+                    stack.remove(next_seed)
             else:
+                new_seed = next_seed
+
                 extended_seeds.append(curr_seed)
-                extended_seeds.append(next_seed)
+                extended_seeds.append(new_seed)
                 stack.remove(curr_seed)
                 stack.remove(next_seed)
             idx+=1
  
-        # Now extend initial seed
+        if len(stack) == 1:
+            extended_seeds.append(stack[0])
+
+        # Extend the initial seed
         if extended_seeds[0].q_pos > 0:
-            query_suffix = self._query_seq[:extended_seeds[0].q_pos]
 
+            query_suffix = self._query_seq[0:extended_seeds[0].q_end]
+          
             aligner = Aligner(self._ref, query_suffix)
-            aln = aligner.affine_semiglobal_alignment()
 
-            next_seed.cigar = aln["cigar"]
-            next_seed.q_pos = aln["q_pos"]
-            next_seed.r_pos = aln["r_pos"]
-            next_seed.seq = query_suffix
-            extended_seeds[0] = next_seed
+            if extended_seeds[1].strand != extended_seeds[0].strand:
+                aln = aligner.affine_local_alignment()
+            else:
+                aln = aligner.affine_semiglobal_alignment()
 
-        # Now extend final seed
+            new_seed = extended_seeds[0]
+            new_seed.cigar = aln["cigar"]
+            new_seed.q_pos = aln["q_pos"]
+            new_seed.r_pos = aln["r_pos"]
+            new_seed.seq = query_suffix
+            extended_seeds[0] = new_seed
+
+        # Now extend the final seed
         if extended_seeds[-1].q_end < len(self._query_seq) - 1:
             query_suffix = self._query_seq[extended_seeds[-1].q_pos:]
 
             aligner = Aligner(self._ref, query_suffix)
-            aln = aligner.affine_semiglobal_alignment()
-            print(aln['pretty_aln'])
-            next_seed.cigar = aln["cigar"]
-            next_seed.q_pos = aln["q_pos"]
-            next_seed.r_pos = aln["r_pos"]
-            next_seed.seq = query_suffix
-            extended_seeds[-1] = next_seed
 
-        # self.seeds = self.merge_overlapping_seeds(self.seeds)
-        # for seed in self.seeds:
-        #     print(seed)
-        print(extended_seeds)
+            if extended_seeds[-1].strand != extended_seeds[-2].strand:
+                aln = aligner.affine_local_alignment()
+            else:
+                aln = aligner.affine_semiglobal_alignment()
+
+            new_seed = extended_seeds[-1]
+            new_seed.cigar = aln["cigar"]
+            new_seed.q_pos = aln["q_pos"]
+            new_seed.r_pos = aln["r_pos"]
+            new_seed.seq = self._query_seq[extended_seeds[-1].q_pos:extended_seeds[-1].q_end]
+            extended_seeds[-1] = new_seed
+
+        # print(extended_seeds)
+
+        # extended_seeds = self.merge_overlapping_seeds(extended_seeds)
+        return extended_seeds
             
     def merge_overlapping_seeds(self, seeds):
+        """ """
         merged_seeds = []
+
+        if len(seeds) <= 1:
+            return seeds
+
         sorted_seeds = sorted(seeds, key=lambda x: x.q_pos, reverse=False)
 
         current_seed = sorted_seeds[0]
@@ -222,181 +260,191 @@ class Blat:
 
         return complement_dict[ntd]
 
+    @staticmethod
+    def cigar_to_variant(seed):
+        """Given a list of cigar operations extract a variant"""
+        cigar_op_list = re.findall(r'\d+[MIDNSHP=X]', seed.cigar)
+        var_list = []
+        cumulative_pos = 0
+        for op in cigar_op_list:
+            tmp = re.split(r"[MID]", op)
+            if op.endswith("M"):
+                cumulative_pos+=int(tmp[0])
+                continue
+            if op.endswith("D"):
+                vartype = "deletion"
+                end = cumulative_pos+int(tmp[0])+seed.r_pos
+                seq = ""
+            if op.endswith("I"):
+                vartype = "insertion"
+                end = cumulative_pos+seed.r_pos
+                seq = ""
+            var_dict = {
+                "type": vartype,
+                "size": tmp[0],
+                "pos": cumulative_pos+seed.r_pos,
+                "end": end,
+                "seq": seq
+            }
+            cumulative_pos+=int(tmp[0])
+            var_list.append(var_dict)
+        return var_list
+
     def align(self, seqs):
         """ """
+        var_list = []
         for seq in seqs:
-            print(f"query_seq: {seq} {len(seq)} ")
-            chains = self.seed(seq)
-            chains = self.extend(seq, chains)
+            self.seed(seq)
+            seeds = self.extend_seeds()
 
-            cigar = []
+            if len(seeds) == 1:
+                print(seeds[0].cigar)
+                var_list = self.cigar_to_variant(seeds[0])
+                for var in var_list:
+                    print(var)
 
-            if len(chains) == 1:
-                print(chains)
-                pass
+            for i in range(0, len(seeds)-1):
+                curr_seed = seeds[i]
+                next_seed = seeds[i+1]
+                print(curr_seed, next_seed)
 
-            len_chains = len(chains)-1
-            for i in range(0, len(chains) - 1):
-                chain = chains[i]
-                next_chain = chains[i + 1]
-                ops = []
-                cigar_dict = {}
+                vars1 = self.cigar_to_variant(curr_seed)
+                vars2 = self.cigar_to_variant(next_seed)
+                var_dict = {}
 
-                print(chain, next_chain, sep="\t")
-                for n in range(0, len(chain.seq)):
-                    chain_ntd = chain.seq[n]
+                if vars1 and vars1 not in var_list:
+                    var_list.append(vars1)
+                if vars2 and vars2 not in var_list:
+                    var_list.append(vars2)
 
-                    ref_ntd = self._ref[chain.r_pos+n]
-                    chain_ntd = chain.seq[n]
+                if next_seed.r_pos > curr_seed.r_end+1:
+                    deletion_size = next_seed.r_pos - curr_seed.r_end+1
+                    var_dict =  {
+                        "type": "deletion",
+                        "size" : deletion_size,
+                        "pos": curr_seed.r_end+1,
+                        "end": next_seed.r_pos,
+                        "alt": self._ref[curr_seed.r_end+1:next_seed.r_pos]
+                    }
+                else:
+                    if next_seed.strand != curr_seed.strand:
+                        inv_seed = curr_seed
+                        if next_seed.strand == "-":
+                            inv_seed = next_seed
 
-                    if chain.strand == "-":
-                        pass
-                        # ops.append("V")
-                    else:
-                        ref_ntd = self._ref[chain.r_pos+n]
-                        if chain_ntd == ref_ntd:
-                            ops.append("M")
-                        else:
-                            ops.append("X")
-
-                if next_chain.diag != 0:
-
-                    if next_chain.r_pos > chain.r_end+1:
-                        deletion = self._ref[chain.r_end : next_chain.r_pos-1]
-
-                        for n in range(0, len(deletion)):
-                            ops.append("D")
-
-                    if next_chain.r_pos == chain.r_end:
-
-                        if next_chain.strand != chain.strand:
-                            for n in range(0, len(deletion)):
-                                ops.append("V")
-
-                        insertion = seq[chain.q_end : next_chain.q_pos]
-                        for n in range(0, len(insertion)):
-                            ops.append("I")
-                        print("INSERTION", insertion)
-                if i == len(chains)-2:
-                    for n in range(0, len(next_chain.seq)):
-                        chain_ntd = next_chain.seq[n]
-                        if next_chain.strand == "-":
-                            ops.append("V")
-                        else:
-                            ref_ntd = self._ref[next_chain.r_pos+n]
-                            if chain_ntd == ref_ntd:
-                                ops.append("M")
-                            else:
-                                ops.append("X")
-
-                cigar_dict = {
-                    "M": 0,
-                    "X": 0,
-                    "D": 0,
-                    "I": 0,
-                    "V": 0
-                }
-                print(ops)
-                for n in range(0, len(ops)-1):
-                    curr_op = ops[n]
-                    next_op = ops[n+1]
-                    if next_op == curr_op:
-                        cigar_dict[curr_op]+=1
-                    if next_op != curr_op or n+1 == len(ops)-1:
-                        print("fgggg")
-                        cigar_dict[curr_op]+=1
-                        cigar.append(str(cigar_dict[curr_op])+curr_op)
-                        cigar_dict = {
-                            "M": 0,
-                            "X": 0,
-                            "D": 0,
-                            "I": 0,
-                            "V": 0
+                        inversion_size = inv_seed.r_end - inv_seed.r_pos
+                        var_dict =  {
+                            "type": "inversion",
+                            "size" : inversion_size,
+                            "pos": inv_seed.r_pos,
+                            "end": inv_seed.r_end,
+                            "alt": self._ref[inv_seed.r_pos:inv_seed.r_end]
                         }
-            print(''.join(cigar))
+                    if next_seed.r_pos < curr_seed.r_end+1:
+                        print("here")
+
+                if var_dict and var_dict not in var_list:
+                    var_list.append(var_dict)
+
+        for var in var_list:
+            print(var)
 
     def seed(self, seq):
-            """ """
-            seeds = []
-            for i in range(0, len(seq) - self._k + 1, self._k):
-                kmer = seq[i : i + self._k]
-                if kmer in self._ref_index:
-                    if len(self._ref_index[kmer]) > 1:
+        """ """
+        seeds = []
+        for i in range(0, len(seq) - self._k + 1, 1):
+            kmer = seq[i : i + self._k]
+            if kmer in self._ref_index:
+                if len(self._ref_index[kmer]) > 1:
+                    continue
+                for hit in self._ref_index[kmer]:
+                    seed = Seed(
+                        q_pos=i,
+                        q_end=i + self._k-1,
+                        r_pos=hit,
+                        r_end=hit + self._k-1,
+                        strand="+",
+                        seq=kmer,
+                    )
+                    seeds.append(seed)
+            else:
+                if kmer in self._ref_rev_index:
+                    if len(self._ref_rev_index[kmer]) > 1:
                         continue
-                    for hit in self._ref_index[kmer]:
+
+                    kseq = Seq(kmer)
+                    fwd_kmer = kseq.reverse_complement()
+
+                    for hit in self._ref_rev_index[kmer]:
                         seed = Seed(
                             q_pos=i,
                             q_end=i + self._k-1,
-                            r_pos=hit,
-                            r_end=hit + self._k-1,
-                            strand="+",
-                            seq=kmer,
+                            r_pos=self._len_ref-hit,
+                            r_end=self._len_ref-hit - self._k-1,
+                            strand="-",
+                            seq=fwd_kmer,
                         )
                         seeds.append(seed)
-                else:
-                    if kmer in self._ref_rev_index:
-                        if len(self._ref_rev_index[kmer]) > 1:
-                            continue
+        chains = []
+        if not seeds:
+            return chains
 
-                        kseq = Seq(kmer)
-                        fwd_kmer = kseq.reverse_complement()
+        # merge consecutive seeds
+        idx = 0
+        for i in range(1, len(seeds)):
+            if seeds[i].q_pos <= seeds[idx].q_end+1 and seeds[i].diag == seeds[idx].diag:
+                seeds[idx].q_end = seeds[i].q_end
+                seeds[idx].r_end = seeds[i].r_end
+                seeds[idx].seq = seq[seeds[idx].q_pos:seeds[idx].q_end+1]
+                seeds[idx].cigar = f"{str(len(seeds[idx].seq))}M"
+            else:
+                idx += 1
+                seeds[idx] = seeds[i]
 
-                        for hit in self._ref_rev_index[kmer]:
-                            seed = Seed(
-                                q_pos=i,
-                                q_end=i + self._k-1,
-                                r_pos=self._len_ref-hit,
-                                r_end=self._len_ref-hit - self._k-1,
-                                strand="-",
-                                seq=fwd_kmer,
-                            )
-                            seeds.append(seed)
-            chains = []
-            if not seeds:
-                return chains
+        for i in range(0, idx+1):
+            if seeds[i].strand == "-":
+                rpos = seeds[i].r_pos
+                rend = seeds[i].r_end
+                seeds[i].r_pos = rend
+                seeds[i].r_end = rpos
+                seeds[i].cigar = f"{str(len(seeds[i].seq))}M"
+            chains.append(seeds[i])
+        schains = sorted(chains, key=lambda x: x.q_pos, reverse=False)
+        self.seeds = schains
 
-            # merge consecutive seeds
-            idx = 0
-            for i in range(1, len(seeds)):
-                if seeds[i].q_pos <= seeds[idx].q_end+1 and seeds[i].diag == seeds[idx].diag:
-                    seeds[idx].q_end = seeds[i].q_end
-                    seeds[idx].r_end = seeds[i].r_end
-                    seeds[idx].seq = seq[seeds[idx].q_pos:seeds[idx].q_end+1]
-                    seeds[idx].cigar = f"{str(len(seeds[idx].seq))}M"
-                else:
-                    idx += 1
-                    seeds[idx] = seeds[i]
+        # Fix positions if applicable
+        for i in range(0, len(self.seeds)-1):
+            curr_seed = self.seeds[i]
+            next_seed = self.seeds[i+1]
+            next_seed.r_pos+=1
+            if curr_seed.strand == next_seed.strand:
+                if curr_seed.q_end > next_seed.q_pos:
+                    offset = curr_seed.q_end-next_seed.q_pos
+                    next_seed.q_pos = curr_seed.q_end+1
+                    next_seed.r_pos = next_seed.r_pos+offset
+                    next_seed.seq = next_seed.seq[offset+1:]
+                    next_seed.cigar = f"{str(len(next_seed.seq))}M"
 
-            for i in range(0, idx+1):
-                if seeds[i].strand == "-":
-                    rpos = seeds[i].r_pos
-                    rend = seeds[i].r_end
-                    seeds[i].r_pos = rend
-                    seeds[i].r_end = rpos
-                    seeds[i].cigar = f"{str(len(seeds[i].seq))}M"
-                chains.append(seeds[i])
-            schains = sorted(chains, key=lambda x: x.q_pos, reverse=False)
-            self.seeds = schains
-            # print(self.seeds)
-            # sys.exit()
+        # print(seq)
+
+        # for read in self.seeds:
+        #     print(read)
+        # sys.exit()
+
+
+        return self.seeds
+  
 
 if __name__ == "__main__":
 
-    # ref_seq   = Seq("tacgcccctagtacCCCCCAGAGAAGATAGTATGAAGGGGGGAGATATGAGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
-    # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGTATGAAGGGGGGAGATATGAGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
+    ref_seq   = Seq("ttttaggacggtacgagacagcgtttttttagtacgcccctagtacCCCCCAGAGAAGATAGTATGAAGGGGGGAGATATGAGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagctacccattaggggaaaagttttaccgt")
 
     # 1. This ons is inverted in the middle!
-    # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATATTTCTCATATCTCCCCCCTTCATACATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
+    query_seq = Seq("acgagacagcgtttttttagtacgcccctagtacCCCCCAxxxxxxagGAGAAGATAGTATGAAGGGGGGAGATATGAGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagctacccattaggggaaaagttttaccgt")
 
-    # 2. This one has a simple deletion in the middle!
-    # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGTATcattagggggatgagaccccaggtagagagtacccccgggttatgxxagaaaaggcccc")
-
-    ref_seq   = Seq("tacgcccctagtacCCCCCAGAGAAGATAGTATGAAGGGGGGAGATATGAGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
-    query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGTATxxxxxxxxxxxxxxxxxxACCTAGCCCGAGAcgatgtacgtgataaaaagct")
-
+    # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
     print("ref_seq:", ref_seq)
     print("query_seq:", query_seq)
     
     blat = Blat(k=11, ref=ref_seq, query_seq=query_seq)
-    blat.seed(query_seq)
-    blat.extend_seeds()
+    blat.align(seqs=[query_seq])
