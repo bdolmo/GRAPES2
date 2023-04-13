@@ -39,10 +39,14 @@ class Seed:
 class Blat:
     """Blat-like implementation"""
 
-    def __init__(self, ref: str, query_seq:str, k=11):
+    def __init__(self, ref: str, chr: str, start:int, end: int,  k=11):
         self._ref = ref
-        self._query_seq = query_seq
+        # self._query_seq = query_seq
         self._k = k
+        self._chr = chr
+        self._start = start
+        self._end = end
+        self._seeds = []
 
         seq = Seq(ref)
         self._ref_rev = seq.reverse_complement()
@@ -50,14 +54,14 @@ class Blat:
         self._ref_rev_index = self.build_index(self._ref_rev)
         self._len_ref = len(ref)
 
-    def extend_seeds(self):
+    def extend_seeds(self, seq):
         """ """
 
         if len(self.seeds) == 1:
             init_seed = self.seeds[0]
             # print("single seed")
             if init_seed.q_pos > 0:
-                query_prefix = self._query_seq[0:init_seed.q_end+1]
+                query_prefix = seq[0:init_seed.q_end+1]
                 aligner = Aligner(self._ref, query_prefix)
                 aln = aligner.affine_semiglobal_alignment()
 
@@ -68,8 +72,8 @@ class Blat:
                 init_seed.seq = query_prefix
                 self.seeds[0] = init_seed
 
-            if init_seed.q_end-init_seed.q_pos < len(self._query_seq)-1:
-                query_prefix = self._query_seq[init_seed.q_pos:]
+            if init_seed.q_end-init_seed.q_pos < len(seq)-1:
+                query_prefix = seq[init_seed.q_pos:]
                 aligner = Aligner(self._ref, query_prefix)
                 aln = aligner.affine_semiglobal_alignment()
 
@@ -95,9 +99,9 @@ class Blat:
             if next_seed.q_pos > curr_seed.q_end+1:
 
                 if idx == 0:
-                    query_between_seeds = self._query_seq[0:next_seed.q_end]
+                    query_between_seeds = seq[0:next_seed.q_end]
                 else:
-                    query_between_seeds = self._query_seq[curr_seed.q_pos:next_seed.q_end]
+                    query_between_seeds = seq[curr_seed.q_pos:next_seed.q_end]
 
                 ref = self._ref
                 if next_seed.strand != curr_seed.strand:
@@ -116,7 +120,7 @@ class Blat:
                 new_seed.q_end = aln["q_end"]
                 new_seed.r_pos = aln["r_pos"]
                 new_seed.r_end = aln["r_end"]
-                new_seed.seq = self._query_seq[new_seed.q_pos:new_seed.q_end]
+                new_seed.seq = seq[new_seed.q_pos:new_seed.q_end]
 
                 if new_seed.strand != curr_seed.strand:
                     extended_seeds.append(curr_seed)
@@ -144,7 +148,7 @@ class Blat:
         # Extend the initial seed
         if extended_seeds[0].q_pos > 0:
 
-            query_suffix = self._query_seq[0:extended_seeds[0].q_end]
+            query_suffix = seq[0:extended_seeds[0].q_end]
           
             aligner = Aligner(self._ref, query_suffix)
 
@@ -161,8 +165,8 @@ class Blat:
             extended_seeds[0] = new_seed
 
         # Now extend the final seed
-        if extended_seeds[-1].q_end < len(self._query_seq) - 1:
-            query_suffix = self._query_seq[extended_seeds[-1].q_pos:]
+        if extended_seeds[-1].q_end < len(seq) - 1:
+            query_suffix = seq[extended_seeds[-1].q_pos:]
 
             aligner = Aligner(self._ref, query_suffix)
 
@@ -175,7 +179,7 @@ class Blat:
             new_seed.cigar = aln["cigar"]
             new_seed.q_pos = aln["q_pos"]
             new_seed.r_pos = aln["r_pos"]
-            new_seed.seq = self._query_seq[extended_seeds[-1].q_pos:extended_seeds[-1].q_end]
+            new_seed.seq = seq[extended_seeds[-1].q_pos:extended_seeds[-1].q_end]
             extended_seeds[-1] = new_seed
 
         # print(extended_seeds)
@@ -267,8 +271,11 @@ class Blat:
         var_list = []
         cumulative_pos = 0
         for op in cigar_op_list:
-            tmp = re.split(r"[MID]", op)
+            tmp = re.split(r"[XMID]", op)
             if op.endswith("M"):
+                cumulative_pos+=int(tmp[0])
+                continue
+            if op.endswith("X"):
                 cumulative_pos+=int(tmp[0])
                 continue
             if op.endswith("D"):
@@ -295,18 +302,16 @@ class Blat:
         var_list = []
         for seq in seqs:
             self.seed(seq)
-            seeds = self.extend_seeds()
+            seeds = self.extend_seeds(seq)
 
             if len(seeds) == 1:
-                print(seeds[0].cigar)
+                # print(seeds[0].cigar)
                 var_list = self.cigar_to_variant(seeds[0])
-                for var in var_list:
-                    print(var)
-
+                    
             for i in range(0, len(seeds)-1):
                 curr_seed = seeds[i]
                 next_seed = seeds[i+1]
-                print(curr_seed, next_seed)
+                # print(curr_seed, next_seed)
 
                 vars1 = self.cigar_to_variant(curr_seed)
                 vars2 = self.cigar_to_variant(next_seed)
@@ -322,8 +327,9 @@ class Blat:
                     var_dict =  {
                         "type": "deletion",
                         "size" : deletion_size,
-                        "pos": curr_seed.r_end+1,
-                        "end": next_seed.r_pos,
+                        "chr": self._chr,
+                        "pos": curr_seed.r_end+1+self._start,
+                        "end": next_seed.r_pos+self._start,
                         "alt": self._ref[curr_seed.r_end+1:next_seed.r_pos]
                     }
                 else:
@@ -336,12 +342,11 @@ class Blat:
                         var_dict =  {
                             "type": "inversion",
                             "size" : inversion_size,
-                            "pos": inv_seed.r_pos,
-                            "end": inv_seed.r_end,
+                            "chr": self._chr,
+                            "pos": inv_seed.r_pos+self._start,
+                            "end": inv_seed.r_end+self._start,
                             "alt": self._ref[inv_seed.r_pos:inv_seed.r_end]
                         }
-                    if next_seed.r_pos < curr_seed.r_end+1:
-                        print("here")
 
                 if var_dict and var_dict not in var_list:
                     var_list.append(var_dict)
@@ -425,13 +430,6 @@ class Blat:
                     next_seed.seq = next_seed.seq[offset+1:]
                     next_seed.cigar = f"{str(len(next_seed.seq))}M"
 
-        # print(seq)
-
-        # for read in self.seeds:
-        #     print(read)
-        # sys.exit()
-
-
         return self.seeds
   
 
@@ -446,5 +444,5 @@ if __name__ == "__main__":
     print("ref_seq:", ref_seq)
     print("query_seq:", query_seq)
     
-    blat = Blat(k=11, ref=ref_seq, query_seq=query_seq)
+    blat = Blat(k=11, ref=ref_seq)
     blat.align(seqs=[query_seq])

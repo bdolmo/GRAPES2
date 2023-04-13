@@ -211,14 +211,12 @@ class Aligner:
             "cigar": cigar,
             "pretty_aln": pretty_aln
         }
-        print(alignment)
 
         return alignment
 
-
     def affine_local_alignment(self) -> dict:
-        """ Semi-global alignment (ends-free alignment) with
-            affine gap penalties
+        """
+            Local alignment with affine gap penalties
         """
 
         m = len(self._seq1)
@@ -270,7 +268,6 @@ class Aligner:
                     max_diag_score = M[i, j]
 
                 # If the current score is below the X-drop threshold, set the score to -inf
-
                 max_value = max(M[i][j], X[i][j], Y[i][j])
 
                 if max_value >= max_score:
@@ -284,7 +281,6 @@ class Aligner:
         i = max_i
         j = max_j
         cigar_str = ""
-
 
         # Traceback. Returning the single best optimal alignment
         while (i > 0 or j > 0) and (M[i][j] > 0 or X[i][j] > 0 or Y[i][j] > 0):
@@ -357,7 +353,6 @@ class Aligner:
 
         # Reconstruct the modified CIGAR string
         cigar = ''.join(cigar_operations)
-        print(cigar)
 
         # offsets
         ref_end = max_i

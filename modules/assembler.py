@@ -4,7 +4,7 @@ import random
 # import edlib
 from Bio import Align
 from Bio.Seq import Seq
-
+from align import Aligner
 
 class Contig():
 

@@ -78,11 +78,10 @@ def scan_breakreads(bam: str, bed: str, fasta: str):
 
         ref = pysam.FastaFile(fasta)
         reference = ref.fetch('chr2', 179431346, 179437577)
-
-        seqs = [contigs[-1]]
+        seqs = contigs
         # print(seqs)
         # sys.exit()
-        blat = Blat(reference, query_seq=contigs[-1])
+        blat = Blat(reference, chr="chr2", start=179431346, end=179437577)
         blat.align(seqs)
 
     pass
