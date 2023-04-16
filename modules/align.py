@@ -57,18 +57,12 @@ class Aligner:
         X = np.zeros((m+1, n+1))
         Y = np.zeros((m+1, n+1))
 
-        # Initialize the first column of M, X, and Y
-        for i in range(1, m+1):
-            M[i, 0] = 0 
-            X[i, 0] = self._gap_open + self._gap_extend-i
-            Y[i, 0] = float('-inf')
-         
-        # Initialize the first row of M, X, and Y
-        for j in range(1, n+1):
-            M[0, j] = 0 
-            X[0, j] = float('-inf')
-            Y[0, j] = self._gap_open + self._gap_extend-j
-        M[0][0] = 0
+        X[:, 0] = [0] + [self._gap_open + self._gap_extend * i for i in range(1, m + 1)]
+        Y[0, :] = [0] + [self._gap_open + self._gap_extend * j for j in range(1, n + 1)]
+        M[:, 0] = 0
+        M[0, :] = 0
+        X[0, :] = float('-inf')
+        Y[:, 0] = float('-inf')
         X[0][0] = float('-inf')
         Y[0][0] = float('-inf')
 
@@ -80,8 +74,11 @@ class Aligner:
         xdrop_threshold = 50
         is_terminated = False
 
-        for i in range(1, len(self._seq1)+1):
-            for j in range(1, len(self._seq2)+1):
+        seq1_len = len(self._seq1)
+        seq2_len = len(self._seq2)
+
+        for i in range(1, seq1_len + 1):
+            for j in range(1, seq2_len + 1):
                 M[i, j] = self.score_match(self._seq1[i-1], 
                             self._seq2[j-1], 
                             self._match, 

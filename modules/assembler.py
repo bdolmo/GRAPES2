@@ -87,7 +87,6 @@ class OverlapAssembler():
                 reads.append(contig)
             if not reads:
                 break
-        n = 0
  
         return contigs
 

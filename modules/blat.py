@@ -5,6 +5,7 @@ import sys
 from align import Aligner
 from Bio.Seq import Seq
 import re
+import pysam
 
 
 class Seed:
@@ -46,7 +47,7 @@ class Blat:
         self._chr = chr
         self._start = start
         self._end = end
-        self._seeds = []
+        self.seeds = []
 
         seq = Seq(ref)
         self._ref_rev = seq.reverse_complement()
@@ -54,11 +55,11 @@ class Blat:
         self._ref_rev_index = self.build_index(self._ref_rev)
         self._len_ref = len(ref)
 
-    def extend_seeds(self, seq):
+    def extend_seeds(self, seq, seeds):
         """ """
 
-        if len(self.seeds) == 1:
-            init_seed = self.seeds[0]
+        if len(seeds) == 1:
+            init_seed = seeds[0]
             # print("single seed")
             if init_seed.q_pos > 0:
                 query_prefix = seq[0:init_seed.q_end+1]
@@ -70,7 +71,7 @@ class Blat:
                 init_seed.q_pos = aln["q_pos"]
                 init_seed.r_pos = aln["r_pos"]
                 init_seed.seq = query_prefix
-                self.seeds[0] = init_seed
+                seeds[0] = init_seed
 
             if init_seed.q_end-init_seed.q_pos < len(seq)-1:
                 query_prefix = seq[init_seed.q_pos:]
@@ -84,12 +85,12 @@ class Blat:
                 init_seed.r_pos = aln["r_pos"]
                 init_seed.r_end = aln["r_end"]
                 init_seed.seq = query_prefix
-                self.seeds[0] = init_seed
-            return self.seeds
+                seeds[0] = init_seed
+            return seeds
 
         extended_seeds = []
 
-        stack = self.seeds
+        stack = seeds
         idx = 0
 
         while len(stack) > 1:
@@ -97,15 +98,16 @@ class Blat:
             next_seed = stack[1]
      
             if next_seed.q_pos > curr_seed.q_end+1:
-
                 if idx == 0:
                     query_between_seeds = seq[0:next_seed.q_end]
                 else:
                     query_between_seeds = seq[curr_seed.q_pos:next_seed.q_end]
 
                 ref = self._ref
-                if next_seed.strand != curr_seed.strand:
+                new_seed = curr_seed
+                if curr_seed.strand == "-" and next_seed.strand == "+":
                     ref = self._ref_rev
+                    new_seed = curr_seed
 
                 aligner = Aligner(ref, query_between_seeds)
                 if next_seed.strand != curr_seed.strand:
@@ -113,18 +115,20 @@ class Blat:
                 else:
                    aln = aligner.affine_semiglobal_alignment()
     
-
-                new_seed = next_seed
+                
                 new_seed.cigar = aln["cigar"]
                 new_seed.q_pos = aln["q_pos"]
                 new_seed.q_end = aln["q_end"]
                 new_seed.r_pos = aln["r_pos"]
                 new_seed.r_end = aln["r_end"]
+                if curr_seed.strand == "-":
+                    new_seed.r_pos = len(self._ref)-aln["r_end"]
+                    new_seed.r_end = len(self._ref)-aln["r_pos"]
                 new_seed.seq = seq[new_seed.q_pos:new_seed.q_end]
 
-                if new_seed.strand != curr_seed.strand:
-                    extended_seeds.append(curr_seed)
+                if next_seed.strand != curr_seed.strand:
                     extended_seeds.append(new_seed)
+                    extended_seeds.append(next_seed)
                     stack.remove(curr_seed)
                     stack.remove(next_seed)
                 else:
@@ -145,13 +149,15 @@ class Blat:
         if len(stack) == 1:
             extended_seeds.append(stack[0])
 
+        if not extended_seeds:
+            return extended_seeds
+        extended_seeds = sorted(extended_seeds, key=lambda x: x.q_pos, reverse=False)
+
         # Extend the initial seed
         if extended_seeds[0].q_pos > 0:
 
             query_suffix = seq[0:extended_seeds[0].q_end]
-          
             aligner = Aligner(self._ref, query_suffix)
-
             if extended_seeds[1].strand != extended_seeds[0].strand:
                 aln = aligner.affine_local_alignment()
             else:
@@ -181,10 +187,9 @@ class Blat:
             new_seed.r_pos = aln["r_pos"]
             new_seed.seq = seq[extended_seeds[-1].q_pos:extended_seeds[-1].q_end]
             extended_seeds[-1] = new_seed
+        extended_seeds= self.merge_overlapping_seeds(extended_seeds)
+        extended_seeds = sorted(extended_seeds, key=lambda x: x.q_pos, reverse=False)
 
-        # print(extended_seeds)
-
-        # extended_seeds = self.merge_overlapping_seeds(extended_seeds)
         return extended_seeds
             
     def merge_overlapping_seeds(self, seeds):
@@ -195,13 +200,10 @@ class Blat:
             return seeds
 
         sorted_seeds = sorted(seeds, key=lambda x: x.q_pos, reverse=False)
-
         current_seed = sorted_seeds[0]
 
         for next_seed in sorted_seeds[1:]:
-
-            # print(current_seed, next_seed)
-            if current_seed.q_end >= next_seed.q_pos and current_seed.q_end >= next_seed.q_pos:
+            if current_seed.q_end >= next_seed.q_pos and current_seed.q_end >= next_seed.q_pos and current_seed.strand == next_seed.strand:
                 # Merge overlapping seeds
                 current_seed.seq = current_seed.seq[0:] + next_seed.seq[current_seed.q_end:]
                 current_seed.q_end = max(current_seed.q_end, next_seed.q_end)
@@ -301,8 +303,8 @@ class Blat:
         """ """
         var_list = []
         for seq in seqs:
-            self.seed(seq)
-            seeds = self.extend_seeds(seq)
+            seeds = self.seed(seq)
+            seeds = self.extend_seeds(seq, seeds)
 
             if len(seeds) == 1:
                 # print(seeds[0].cigar)
@@ -311,7 +313,6 @@ class Blat:
             for i in range(0, len(seeds)-1):
                 curr_seed = seeds[i]
                 next_seed = seeds[i+1]
-                # print(curr_seed, next_seed)
 
                 vars1 = self.cigar_to_variant(curr_seed)
                 vars2 = self.cigar_to_variant(next_seed)
@@ -351,8 +352,7 @@ class Blat:
                 if var_dict and var_dict not in var_list:
                     var_list.append(var_dict)
 
-        for var in var_list:
-            print(var)
+        return var_list
 
     def seed(self, seq):
         """ """
@@ -415,12 +415,12 @@ class Blat:
                 seeds[i].cigar = f"{str(len(seeds[i].seq))}M"
             chains.append(seeds[i])
         schains = sorted(chains, key=lambda x: x.q_pos, reverse=False)
-        self.seeds = schains
+        seeds = schains
 
         # Fix positions if applicable
-        for i in range(0, len(self.seeds)-1):
-            curr_seed = self.seeds[i]
-            next_seed = self.seeds[i+1]
+        for i in range(0, len(seeds)-1):
+            curr_seed = seeds[i]
+            next_seed = seeds[i+1]
             next_seed.r_pos+=1
             if curr_seed.strand == next_seed.strand:
                 if curr_seed.q_end > next_seed.q_pos:
@@ -430,7 +430,9 @@ class Blat:
                     next_seed.seq = next_seed.seq[offset+1:]
                     next_seed.cigar = f"{str(len(next_seed.seq))}M"
 
-        return self.seeds
+        seeds = sorted(seeds, key=lambda x: x.q_pos, reverse=False)
+
+        return seeds
   
 
 if __name__ == "__main__":
@@ -441,8 +443,15 @@ if __name__ == "__main__":
     query_seq = Seq("acgagacagcgtttttttagtacgcccctagtacCCCCCAxxxxxxagGAGAAGATAGTATGAAGGGGGGAGATATGAGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagctacccattaggggaaaagttttaccgt")
 
     # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
-    print("ref_seq:", ref_seq)
-    print("query_seq:", query_seq)
+    # print("ref_seq:", ref_seq)
     
-    blat = Blat(k=11, ref=ref_seq)
+    query_seq = "ATCAAATTTAACAGGTCCTTTTGGAGGATCAGGTTTATCTATAGTTACAATTTCGATGGATGCTGTCTTCTGACGCCTGCCGAGAAGATGTTGGCCATTATGTGGTTAAACTGACTAACTCAGCTGGTGAAGCTATTGAAGCCCTTAATGTTATCGCATCCTTTATTGTCAGTAGTGAATTATTTTCTGTGCTCTCTGCATTTACTCTAGTTGTCTGCTTCAGTGGT"
+    
+    print("query_seq:", query_seq)
+    fasta = "/home/bdelolmo/REF_DIR/hg19/ucsc.hg19.fasta"
+    ref = pysam.FastaFile(fasta)
+    reference = ref.fetch('chr2', 179431346, 179437577)
+
+
+    blat = Blat(k=21, ref=reference, chr="chr2", start=179431346, end=179437577)
     blat.align(seqs=[query_seq])

@@ -8,6 +8,11 @@ from bed import BedRecord
 from blat import Blat
 from Bio import Align
 from assembler import DeBruijnAssembler, OverlapAssembler
+
+import networkx as nx
+from collections import defaultdict
+from itertools import combinations
+
 # import edlib
 # from swalign import swalign
 
@@ -44,6 +49,59 @@ def get_bam_stats(bam: str, bed: str, N=5000):
     return bam_stats
 
 
+def insert_size(reads):
+    pos = sorted([read.pos for read in reads])
+    return pos[-1] - pos[0]
+
+def create_discordant_read_graph(discordant_reads, mean_insert_size, sd_insert_size):
+    G = nx.Graph()
+    max_insert_size = mean_insert_size + 10 * sd_insert_size
+
+    for qname, reads in discordant_reads.items():
+        if len(reads) != 2:
+            continue
+
+        G.add_node(qname, reads=reads)
+
+    for qname, other_qname in combinations(G.nodes, 2):
+        reads = G.nodes[qname]['reads']
+        other_reads = G.nodes[other_qname]['reads']
+
+        if is_overlapping(reads, other_reads, max_insert_size):
+            G.add_edge(qname, other_qname)
+
+    return G
+
+def is_overlapping(reads_a, reads_b, max_insert_size):
+    chromosomes_a = {read.reference_id for read in reads_a}
+    chromosomes_b = {read.reference_id for read in reads_b}
+
+    if chromosomes_a != chromosomes_b:
+        return False
+
+    pos_a = sorted([read.pos for read in reads_a])
+    pos_b = sorted([read.pos for read in reads_b])
+
+    if abs(pos_a[0] - pos_b[0]) > max_insert_size or abs(pos_a[1] - pos_b[1]) > max_insert_size:
+        return False
+
+    insert_sizes = [insert_size(pair) for pair in combinations(reads_a + reads_b, 2) if pair[0].reference_id == pair[1].reference_id]
+
+    if not insert_sizes:
+        return False
+
+    mean_cluster_insert_size = np.mean(insert_sizes)
+    sd_insert_size = np.std(insert_sizes)
+    within_limit = [size for size in insert_sizes if size <= mean_cluster_insert_size + 3 * sd_insert_size]
+
+    return len(within_limit) == len(insert_sizes)
+
+def cluster_discordant_reads(G):
+    cliques = nx.algorithms.community.k_clique_communities(G, 2)
+    clusters = [G.subgraph(clique) for clique in cliques]
+    return clusters
+
+
 def scan_breakreads(bam: str, bed: str, fasta: str):
     """ """
 
@@ -57,6 +115,40 @@ def scan_breakreads(bam: str, bed: str, fasta: str):
             rec = BedRecord(tmp[0], int(tmp[1]), int(tmp[2]))
             regions.append(rec)
     f.close()
+
+    breakreads = defaultdict(list)
+    bam_file = pysam.AlignmentFile(bam, "rb")
+    for read in bam_file:
+        if not read.cigarstring:
+            continue
+        if not read.is_proper_pair:
+            if re.search(r"^[0-9]+S([0-9]+I)?[0-9]+M$", read.cigarstring):
+                # breakreads.append(read.query_sequence)
+                breakreads[read.qname].append(read)
+
+            if re.search(r"^[0-9]+M([0-9]+I)?[0-9]+S$", read.cigarstring):
+                # breakreads.append(read.query_sequence)
+                breakreads[read.qname].append(read)
+
+    min_insert_size = 50
+    max_insert_size = 50000
+    G = create_discordant_read_graph(breakreads, bam_stats['isize_median'], bam_stats['isize_mad'])
+    clusters = cluster_discordant_reads(G)
+
+    print('Total clusters:', len(clusters))
+
+    for i, cluster in enumerate(clusters, start=1):
+        print(f'Cluster {i}:')
+        for node, data in cluster.nodes(data=True):
+            reads = data['reads']
+            print(f'  {node}:')
+            for read in reads:
+                print(f'    {read.reference_name}:{read.pos}-{read.pos + read.qlen}')
+
+
+
+
+    sys.exit()
 
     bam_file = pysam.AlignmentFile(bam, "rb")
     for region in regions:
@@ -75,14 +167,19 @@ def scan_breakreads(bam: str, bed: str, fasta: str):
 
         oas = OverlapAssembler(breakreads, 21)
         contigs = oas.compute_overlaps()
-
         ref = pysam.FastaFile(fasta)
         reference = ref.fetch('chr2', 179431346, 179437577)
         seqs = contigs
         # print(seqs)
         # sys.exit()
+
+        # for seq in seqs:
+        #     print(str(seq))
+
+
         blat = Blat(reference, chr="chr2", start=179431346, end=179437577)
-        blat.align(seqs)
+        vars = blat.align(seqs)
+        print(vars)
 
     pass
 
