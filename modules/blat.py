@@ -6,6 +6,7 @@ from align import Aligner
 from Bio.Seq import Seq
 import re
 import pysam
+from affine.align import semiglobal_alignment, local_alignment
 
 
 class Seed:
@@ -58,6 +59,8 @@ class Blat:
     def extend_seeds(self, seq, seeds):
         """ """
 
+        print(seeds)
+
         if len(seeds) == 1:
             init_seed = seeds[0]
             # print("single seed")
@@ -101,7 +104,8 @@ class Blat:
                 if idx == 0:
                     query_between_seeds = seq[0:next_seed.q_end]
                 else:
-                    query_between_seeds = seq[curr_seed.q_pos:next_seed.q_end]
+                    query_between_seeds = seq[curr_seed.q_pos:next_seed.q_end+1]
+                    print("query:", query_between_seeds)
 
                 ref = self._ref
                 new_seed = curr_seed
@@ -111,10 +115,15 @@ class Blat:
 
                 aligner = Aligner(ref, query_between_seeds)
                 if next_seed.strand != curr_seed.strand:
-                    aln = aligner.affine_local_alignment()
+                    # aln = aligner.affine_local_alignment()
+                    print("extending local", ref, query_between_seeds, sep="\n")
+                    aln = local_alignment(ref, query_between_seeds)
+                    print(aln['pretty_aln'])
                 else:
-                   aln = aligner.affine_semiglobal_alignment()
-    
+                #    aln = aligner.affine_semiglobal_alignment()
+                    aln = semiglobal_alignment(ref, query_between_seeds)
+                    print(aln['pretty_aln'])
+
                 
                 new_seed.cigar = aln["cigar"]
                 new_seed.q_pos = aln["q_pos"]
@@ -159,8 +168,10 @@ class Blat:
             query_suffix = seq[0:extended_seeds[0].q_end]
             aligner = Aligner(self._ref, query_suffix)
             if extended_seeds[1].strand != extended_seeds[0].strand:
+                # print("local", ref, query_between_seeds)
                 aln = aligner.affine_local_alignment()
             else:
+                print(ref, query_between_seeds)
                 aln = aligner.affine_semiglobal_alignment()
 
             new_seed = extended_seeds[0]
@@ -177,10 +188,13 @@ class Blat:
             aligner = Aligner(self._ref, query_suffix)
 
             if extended_seeds[-1].strand != extended_seeds[-2].strand:
-                aln = aligner.affine_local_alignment()
+                # aln = aligner.affine_local_alignment()
+                print("local", ref, query_between_seeds)
+                aln = local_alignment(ref, query_between_seeds)
             else:
-                aln = aligner.affine_semiglobal_alignment()
-
+                # aln = aligner.affine_semiglobal_alignment()
+                print(ref, query_between_seeds)
+                aln = semiglobal_alignment(ref, query_between_seeds)
             new_seed = extended_seeds[-1]
             new_seed.cigar = aln["cigar"]
             new_seed.q_pos = aln["q_pos"]
@@ -189,6 +203,7 @@ class Blat:
             extended_seeds[-1] = new_seed
         extended_seeds= self.merge_overlapping_seeds(extended_seeds)
         extended_seeds = sorted(extended_seeds, key=lambda x: x.q_pos, reverse=False)
+
 
         return extended_seeds
             
@@ -445,7 +460,7 @@ if __name__ == "__main__":
     # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
     # print("ref_seq:", ref_seq)
     
-    query_seq = "ATCAAATTTAACAGGTCCTTTTGGAGGATCAGGTTTATCTATAGTTACAATTTCGATGGATGCTGTCTTCTGACGCCTGCCGAGAAGATGTTGGCCATTATGTGGTTAAACTGACTAACTCAGCTGGTGAAGCTATTGAAGCCCTTAATGTTATCGCATCCTTTATTGTCAGTAGTGAATTATTTTCTGTGCTCTCTGCATTTACTCTAGTTGTCTGCTTCAGTGGT"
+    query_seq = "ATCAAATTTAACAGGTCCTTTTGTAGGATCAGGTTTATCTAGAGTTACAATTTCGATGGATGCTGTCTTCTGACGCCTGCCGAGAAGATGTTGGCCATTATGTGGTTAAACTGACTAACTCAGCTGGTGAAGCTATTGAAACCCTTAATGTTATCGCATCCTTTATTGTCAGTAGTGAATTATTTTCTGTGCTCTCTGCATTTACTCTAGTTGTCTGCTTCAGTGGT"
     
     print("query_seq:", query_seq)
     fasta = "/home/bdelolmo/REF_DIR/hg19/ucsc.hg19.fasta"
@@ -454,4 +469,4 @@ if __name__ == "__main__":
 
 
     blat = Blat(k=21, ref=reference, chr="chr2", start=179431346, end=179437577)
-    blat.align(seqs=[query_seq])
+    print(blat.align(seqs=[query_seq]))
