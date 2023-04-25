@@ -193,14 +193,14 @@ def semiglobal_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, misma
     seq2_align = seq2_align[::-1]
     spacer = spacer[::-1]
     cigar_str = cigar_str[::-1]
-    print(cigar_str)
-    print(seq1_align)
-    print(spacer)
-    print(seq2_align)
+    # print(cigar_str)
+    # print(seq1_align)
+    # print(spacer)
+    # print(seq2_align)
 
     cigar = compact_cigar_string(cigar_str)
     cigar_operations = re.findall(r'\d+[MIDNSHP=X]', cigar)
-    print(cigar)
+    # print(cigar)
 
     # Remove deletions (D) from the beginning and end of the CIGAR string
 
@@ -241,14 +241,14 @@ def semiglobal_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, misma
 
     return alignment
 
-def local_alignment(seq1, seq2, gap_open=-20, gap_extend=-1, match=2, mismatch=-1) -> dict:
+def local_alignment(seq1, seq2, gap_open=-25, gap_extend=-1, match=2, mismatch=-4, band_width=50) -> dict:
     """
         Local alignment with affine gap penalties
     """
     cdef:
         int m = len(seq1)
         int n = len(seq2)
-        int i, j, max_i, max_j
+        int i, j, max_i, max_j, j_lower_bound, j_upper_bound
         double[:, :] M = np.zeros((m + 1, n + 1), dtype=np.float64)
         double[:, :] X = np.zeros((m + 1, n + 1), dtype=np.float64)
         double[:, :] Y = np.zeros((m + 1, n + 1), dtype=np.float64)
@@ -277,7 +277,12 @@ def local_alignment(seq1, seq2, gap_open=-20, gap_extend=-1, match=2, mismatch=-
 
 
     for i in range(1, len(seq1)+1):
+
+        j_lower_bound = max(1, i - band_width)
+        j_upper_bound = min(n + 1, i + band_width+1)
+        # for j in range(j_lower_bound, j_upper_bound):
         for j in range(1, len(seq2)+1):
+            # if abs(i - j) <= band_width:
             M[i, j] = max(
                 0,
                 score_match(seq1[i - 1], seq2[j - 1], match, mismatch)
@@ -370,9 +375,9 @@ def local_alignment(seq1, seq2, gap_open=-20, gap_extend=-1, match=2, mismatch=-
     spacer = spacer[::-1]
     cigar_str = cigar_str[::-1]
 
-    print(seq1_align)
-    print(spacer)
-    print(seq2_align)
+    # print(seq1_align)
+    # print(spacer)
+    # print(seq2_align)
 
     cigar = compact_cigar_string(cigar_str)
     

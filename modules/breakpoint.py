@@ -175,8 +175,8 @@ def call_structural_variants(bam: str, bed: str, fasta: str):
     bam_stats = get_bam_stats(bam, bed)
 
     breakreads = scan_breakreads(bam, bed, fasta)
-    G = create_breakreads_graph(breakreads, bam_stats['isize_median'], bam_stats['isize_mad'])
-    clusters = cluster_breakreads(G)
+    breakreads_graph = create_breakreads_graph(breakreads, bam_stats['isize_median'], bam_stats['isize_mad'])
+    clusters = cluster_breakreads(breakreads_graph)
 
     print('Total clusters:', len(clusters))
     seqs = []
@@ -189,9 +189,6 @@ def call_structural_variants(bam: str, bed: str, fasta: str):
                 print(f'    {read.reference_name}:{read.pos}-{read.pos + read.qlen}')
                 seqs.append(read.seq)
   
-    # for read_pair in breakreads:
-    #     for read in breakreads[read_pair]:
-    #         seqs.append(read.seq)
 
     oas = OverlapAssembler(seqs, 21)
     contigs = oas.compute_overlaps()
@@ -203,7 +200,7 @@ def call_structural_variants(bam: str, bed: str, fasta: str):
     blat = Blat(k=21, ref=reference, chr="chr2", start=179431346, end=179437577)
 
     # blat = Blat(reference, chr="chr2", start=179431346, end=179437577)
-    for i in range(0, 20):
+    for i in range(0, 1):
         for seq in contigs:
             print("aligning", seq)
             vars = blat.align(seqs=[seq])

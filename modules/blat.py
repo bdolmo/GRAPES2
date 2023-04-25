@@ -12,7 +12,7 @@ from affine.align import semiglobal_alignment, local_alignment
 class Seed:
     """ """
 
-    def __init__(self, q_pos, q_end, r_pos, r_end, seq, strand):
+    def __init__(self, q_pos=0, q_end=0, r_pos=0, r_end=0, seq="", strand=""):
         self.q_pos = q_pos
         self.q_end = q_end
         self.r_pos = r_pos
@@ -20,6 +20,8 @@ class Seed:
         self.seq = seq
         self.strand = strand
         self.cigar = ""
+        self.q_span = abs(self.q_end-self.q_pos)
+        self.r_span = abs(self.r_end-self.r_pos)
 
         self.seeds = []
 
@@ -33,7 +35,7 @@ class Seed:
 
     def __repr__(self):
         back = (
-            f"q_pos:{self.q_pos},q_end:{self.q_end} {(self.seq)} "
+            f"q_pos:{self.q_pos},q_end:{self.q_end} {(self.seq)} {self.q_span}"
             f"r_pos:{self.r_pos},r_end:{self.r_end} strand:{self.strand} cigar:{self.cigar} diag:{self.diag}"
         )
         return back
@@ -56,157 +58,130 @@ class Blat:
         self._ref_rev_index = self.build_index(self._ref_rev)
         self._len_ref = len(ref)
 
-    def extend_seeds(self, seq, seeds):
+    def extension(self, seq, seeds):
         """ """
 
-        print(seeds)
-
         if len(seeds) == 1:
-            init_seed = seeds[0]
-            # print("single seed")
-            if init_seed.q_pos > 0:
-                query_prefix = seq[0:init_seed.q_end+1]
-                aligner = Aligner(self._ref, query_prefix)
-                aln = aligner.affine_semiglobal_alignment()
-
-                # Update seed 
-                init_seed.cigar = aln["cigar"]
-                init_seed.q_pos = aln["q_pos"]
-                init_seed.r_pos = aln["r_pos"]
-                init_seed.seq = query_prefix
-                seeds[0] = init_seed
-
-            if init_seed.q_end-init_seed.q_pos < len(seq)-1:
-                query_prefix = seq[init_seed.q_pos:]
-                aligner = Aligner(self._ref, query_prefix)
-                aln = aligner.affine_semiglobal_alignment()
-
-                # Update seed 
-                init_seed.cigar = aln["cigar"]
-                init_seed.q_pos = aln["q_pos"]
-                init_seed.q_end = aln["q_end"]
-                init_seed.r_pos = aln["r_pos"]
-                init_seed.r_end = aln["r_end"]
-                init_seed.seq = query_prefix
-                seeds[0] = init_seed
             return seeds
 
         extended_seeds = []
+        seeds = self.merge_overlapping_seeds(seeds)
 
-        stack = seeds
-        idx = 0
+        for i in range(0, len(seeds)-1):
 
-        while len(stack) > 1:
-            curr_seed = stack[0]
-            next_seed = stack[1]
-     
-            if next_seed.q_pos > curr_seed.q_end+1:
-                if idx == 0:
-                    query_between_seeds = seq[0:next_seed.q_end]
-                else:
-                    query_between_seeds = seq[curr_seed.q_pos:next_seed.q_end+1]
-                    print("query:", query_between_seeds)
+            curr_seed = seeds[i]
+            next_seed = seeds[i+1]
 
-                ref = self._ref
-                new_seed = curr_seed
-                if curr_seed.strand == "-" and next_seed.strand == "+":
-                    ref = self._ref_rev
-                    new_seed = curr_seed
+            left_seed = Seed()
+            right_seed = Seed()
 
-                aligner = Aligner(ref, query_between_seeds)
-                if next_seed.strand != curr_seed.strand:
-                    # aln = aligner.affine_local_alignment()
-                    print("extending local", ref, query_between_seeds, sep="\n")
-                    aln = local_alignment(ref, query_between_seeds)
-                    print(aln['pretty_aln'])
-                else:
-                #    aln = aligner.affine_semiglobal_alignment()
-                    aln = semiglobal_alignment(ref, query_between_seeds)
-                    print(aln['pretty_aln'])
+            if curr_seed.q_end+1 < next_seed.q_pos:
+                if curr_seed.strand == "+" and next_seed.strand == "+":
+                    query_seq = seq[curr_seed.q_pos:next_seed.q_end+1]
 
-                
-                new_seed.cigar = aln["cigar"]
-                new_seed.q_pos = aln["q_pos"]
-                new_seed.q_end = aln["q_end"]
-                new_seed.r_pos = aln["r_pos"]
-                new_seed.r_end = aln["r_end"]
-                if curr_seed.strand == "-":
-                    new_seed.r_pos = len(self._ref)-aln["r_end"]
-                    new_seed.r_end = len(self._ref)-aln["r_pos"]
-                new_seed.seq = seq[new_seed.q_pos:new_seed.q_end]
+                    # Extend (+) seed
+                    aln = local_alignment(self._ref, query_seq)
+                    left_seed.cigar = aln["cigar"]
+                    left_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                    left_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                    left_seed.r_pos = aln["r_pos"]
+                    left_seed.r_end = aln["r_end"]
+                    left_seed.strand = "+"
+                    left_seed.seq = seq[left_seed.q_pos:left_seed.q_end+1]
 
-                if next_seed.strand != curr_seed.strand:
-                    extended_seeds.append(new_seed)
-                    extended_seeds.append(next_seed)
-                    stack.remove(curr_seed)
-                    stack.remove(next_seed)
-                else:
-                    extended_seeds.append(new_seed)
-                    extended_seeds.append(curr_seed)
+                    # Extend (+) seed
+                    aln = local_alignment(self._ref, query_seq)
+                    right_seed.cigar = aln["cigar"]
+                    right_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                    right_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                    right_seed.r_pos = aln["r_pos"]
+                    right_seed.r_end = aln["r_end"]
+                    right_seed.strand = "+"
+                    right_seed.seq = seq[right_seed.q_pos:right_seed.q_end+1]
+                    # print("extend_plus:", aln['pretty_aln'], right_seed, sep="\n")
 
-                    stack.remove(curr_seed)
-                    stack.remove(next_seed)
+                elif curr_seed.strand == "+" and next_seed.strand == "-":
+                    query_seq = seq[curr_seed.q_pos:next_seed.q_end+1]
+
+                    # Extend (+) seed
+                    aln = local_alignment(self._ref, query_seq)
+                    left_seed.cigar = aln["cigar"]
+                    left_seed.q_pos = aln["q_pos"]
+                    left_seed.q_end = aln["q_end"]
+                    left_seed.r_pos = aln["r_pos"]
+                    left_seed.r_end = aln["r_end"]
+                    left_seed.seq = seq[left_seed.q_pos:left_seed.q_end+1]
+                    left_seed.strand = "+"
+
+                    # Extend (-) seed
+                    aln = local_alignment(self._ref_rev, query_seq)
+                    if aln["q_end"] - aln["q_pos"] > 10:
+                        right_seed.cigar = aln["cigar"]
+                        right_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                        right_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                        right_seed.r_pos = len(self._ref_rev)-aln["r_end"]
+                        right_seed.r_end = len(self._ref_rev)-aln["r_pos"]
+                        right_seed.seq = seq[right_seed.q_pos:right_seed.q_end+1]
+                        right_seed.strand = "-"
+
+                elif curr_seed.strand == "-" and next_seed.strand == "+":
+                    query_seq = seq[curr_seed.q_pos:next_seed.q_end+1]
+
+                    # Extend (-) seed
+                    aln = local_alignment(self._ref_rev, query_seq)
+                    left_seed.cigar = aln["cigar"]
+                    left_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                    left_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                    left_seed.r_pos = len(self._ref_rev) - aln["r_end"]
+                    left_seed.r_end = len(self._ref_rev) - aln["r_pos"]
+                    left_seed.seq = seq[left_seed.q_pos:left_seed.q_end+1]
+                    left_seed.strand = "-"
+
+                    # Extend (+) seed
+                    aln = local_alignment(self._ref, query_seq)
+                    if aln["q_end"] - aln["q_pos"] > 10:
+
+                        right_seed.cigar = aln["cigar"]
+                        right_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                        right_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                        right_seed.r_pos = aln["r_pos"]
+                        right_seed.r_end = aln["r_end"]
+                        right_seed.seq = seq[right_seed.q_pos:right_seed.q_end+1]
+                        right_seed.strand = "+"
+
+                elif curr_seed.strand == "-" and next_seed.strand == "-":
+                    query_seq = seq[curr_seed.q_pos:next_seed.q_end+1]
+                    # Extend (-) seed
+                    aln = local_alignment(self._ref_rev, query_seq)
+                    left_seed.cigar = aln["cigar"]
+                    left_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                    left_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                    left_seed.r_pos = len(self._ref_rev)-aln["r_end"]
+                    left_seed.r_end = len(self._ref_rev)-aln["r_pos"]
+                    left_seed.seq = seq[left_seed.q_pos:left_seed.q_end+1]
+                    left_seed.strand = "-"
+
+                    # Extend (-) seed
+                    aln = local_alignment(self._ref_rev, query_seq)
+                    right_seed.cigar = aln["cigar"]
+                    right_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
+                    right_seed.q_end = aln["q_end"] + curr_seed.q_pos
+                    right_seed.r_pos = len(self._ref_rev)-aln["r_end"]
+                    right_seed.r_end = len(self._ref_rev)-aln["r_pos"]
+                    right_seed.seq = seq[right_seed.q_pos:right_seed.q_pos+1]
+                    right_seed.strand = "-"
             else:
-                new_seed = next_seed
+                left_seed = curr_seed
+                right_seed = next_seed
+            if not left_seed in extended_seeds and len(left_seed.seq) > 0:
+                extended_seeds.append(left_seed)
+            if not right_seed in extended_seeds and len(right_seed.seq) > 0:
+                extended_seeds.append(right_seed)
 
-                extended_seeds.append(curr_seed)
-                extended_seeds.append(new_seed)
-                stack.remove(curr_seed)
-                stack.remove(next_seed)
-            idx+=1
- 
-        if len(stack) == 1:
-            extended_seeds.append(stack[0])
-
-        if not extended_seeds:
-            return extended_seeds
-        extended_seeds = sorted(extended_seeds, key=lambda x: x.q_pos, reverse=False)
-
-        # Extend the initial seed
-        if extended_seeds[0].q_pos > 0:
-
-            query_suffix = seq[0:extended_seeds[0].q_end]
-            aligner = Aligner(self._ref, query_suffix)
-            if extended_seeds[1].strand != extended_seeds[0].strand:
-                # print("local", ref, query_between_seeds)
-                aln = aligner.affine_local_alignment()
-            else:
-                print(ref, query_between_seeds)
-                aln = aligner.affine_semiglobal_alignment()
-
-            new_seed = extended_seeds[0]
-            new_seed.cigar = aln["cigar"]
-            new_seed.q_pos = aln["q_pos"]
-            new_seed.r_pos = aln["r_pos"]
-            new_seed.seq = query_suffix
-            extended_seeds[0] = new_seed
-
-        # Now extend the final seed
-        if extended_seeds[-1].q_end < len(seq) - 1:
-            query_suffix = seq[extended_seeds[-1].q_pos:]
-
-            aligner = Aligner(self._ref, query_suffix)
-
-            if extended_seeds[-1].strand != extended_seeds[-2].strand:
-                # aln = aligner.affine_local_alignment()
-                print("local", ref, query_between_seeds)
-                aln = local_alignment(ref, query_between_seeds)
-            else:
-                # aln = aligner.affine_semiglobal_alignment()
-                print(ref, query_between_seeds)
-                aln = semiglobal_alignment(ref, query_between_seeds)
-            new_seed = extended_seeds[-1]
-            new_seed.cigar = aln["cigar"]
-            new_seed.q_pos = aln["q_pos"]
-            new_seed.r_pos = aln["r_pos"]
-            new_seed.seq = seq[extended_seeds[-1].q_pos:extended_seeds[-1].q_end]
-            extended_seeds[-1] = new_seed
-        extended_seeds= self.merge_overlapping_seeds(extended_seeds)
-        extended_seeds = sorted(extended_seeds, key=lambda x: x.q_pos, reverse=False)
-
+        extended_seeds = self.merge_overlapping_seeds(extended_seeds)
 
         return extended_seeds
-            
+
     def merge_overlapping_seeds(self, seeds):
         """ """
         merged_seeds = []
@@ -220,12 +195,20 @@ class Blat:
         for next_seed in sorted_seeds[1:]:
             if current_seed.q_end >= next_seed.q_pos and current_seed.q_end >= next_seed.q_pos and current_seed.strand == next_seed.strand:
                 # Merge overlapping seeds
-                current_seed.seq = current_seed.seq[0:] + next_seed.seq[current_seed.q_end:]
-                current_seed.q_end = max(current_seed.q_end, next_seed.q_end)
-                current_seed.r_end = max(current_seed.r_end, next_seed.r_end)
-                current_seed.cigar = self.merge_and_simplify_cigars(current_seed.cigar, next_seed.cigar)
+                if current_seed.strand == next_seed.strand:
+                    current_seed.seq = current_seed.seq[0:] + next_seed.seq[current_seed.q_end:]
+                    current_seed.q_end = max(current_seed.q_end, next_seed.q_end)
+                    current_seed.r_pos = min(current_seed.r_pos, next_seed.r_pos)
+                    current_seed.r_end = max(current_seed.r_end, next_seed.r_end)
+                    current_seed.cigar = self.merge_and_simplify_cigars(current_seed.cigar, next_seed.cigar)
             else:
                 # Add the current seed to the merged list
+                if current_seed.q_end >= next_seed.q_pos and current_seed.q_end >= next_seed.q_pos and current_seed.strand != next_seed.strand:
+                    abs_pos = abs(next_seed.q_pos-current_seed.q_end)
+                    next_seed.q_pos = next_seed.q_pos+abs_pos
+                    next_seed.r_pos = next_seed.r_pos+abs_pos
+                    next_seed.seq = next_seed.seq[abs_pos+1:]
+
                 merged_seeds.append(current_seed)
                 current_seed = next_seed
 
@@ -319,10 +302,10 @@ class Blat:
         var_list = []
         for seq in seqs:
             seeds = self.seed(seq)
-            seeds = self.extend_seeds(seq, seeds)
+            print("seq", seq)
+            seeds = self.extension(seq, seeds)
 
             if len(seeds) == 1:
-                # print(seeds[0].cigar)
                 var_list = self.cigar_to_variant(seeds[0])
                     
             for i in range(0, len(seeds)-1):
@@ -342,7 +325,7 @@ class Blat:
                     deletion_size = next_seed.r_pos - curr_seed.r_end+1
                     var_dict =  {
                         "type": "deletion",
-                        "size" : deletion_size,
+                        "size" : (next_seed.r_pos+self._start)-(curr_seed.r_end+1+self._start),
                         "chr": self._chr,
                         "pos": curr_seed.r_end+1+self._start,
                         "end": next_seed.r_pos+self._start,
@@ -357,12 +340,24 @@ class Blat:
                         inversion_size = inv_seed.r_end - inv_seed.r_pos
                         var_dict =  {
                             "type": "inversion",
-                            "size" : inversion_size,
+                            "size" : (inv_seed.r_end+self._start)-(inv_seed.r_pos+self._start),
                             "chr": self._chr,
                             "pos": inv_seed.r_pos+self._start,
                             "end": inv_seed.r_end+self._start,
                             "alt": self._ref[inv_seed.r_pos:inv_seed.r_end]
                         }
+                    else:
+                        var_dict = {
+                            "type": "duplication",
+                            "size": curr_seed.r_pos-next_seed.r_end,
+                            "chr": self._chr,
+                            "pos": next_seed.r_end+self._start,
+                            "end": curr_seed.r_pos+self._start,
+                            "alt": self._ref[next_seed.r_pos-1:curr_seed.r_end+1]                             
+                        }
+                        print(var_dict)
+                        print(next_seed.q_end, curr_seed.q_pos)
+
 
                 if var_dict and var_dict not in var_list:
                     var_list.append(var_dict)
@@ -446,7 +441,7 @@ class Blat:
                     next_seed.cigar = f"{str(len(next_seed.seq))}M"
 
         seeds = sorted(seeds, key=lambda x: x.q_pos, reverse=False)
-
+        print(seeds)
         return seeds
   
 
@@ -460,12 +455,16 @@ if __name__ == "__main__":
     # query_seq = Seq("tacgcccctagtacCCCCCAGAGAAGATAGGAAAATAGAATCCCACCTAGCCCGAGAcgatgtacgtgataaaaagct")
     # print("ref_seq:", ref_seq)
     
-    query_seq = "ATCAAATTTAACAGGTCCTTTTGTAGGATCAGGTTTATCTAGAGTTACAATTTCGATGGATGCTGTCTTCTGACGCCTGCCGAGAAGATGTTGGCCATTATGTGGTTAAACTGACTAACTCAGCTGGTGAAGCTATTGAAACCCTTAATGTTATCGCATCCTTTATTGTCAGTAGTGAATTATTTTCTGTGCTCTCTGCATTTACTCTAGTTGTCTGCTTCAGTGGT"
+    query_seq = "ATCAAATTTAACAGGTCCTTTTGGAGGATCAGGTTTATCTAGAGTTACAATTTCGATGGATGCTGTCTTCTGACGCCTGCCGAGAAGATGTTGGCCATTATGTGGCTAAACTGACTAACTCAGCTGGTGAAGCTATTGAAACCCTTAATGTTATCGCATCCTTTATTGTCAGTAGTGAATTATTTTCTGTGCTCTCTGCATTTACTCTAGTTGTCTGCTTCAGTGGT"
     
     print("query_seq:", query_seq)
     fasta = "/home/bdelolmo/REF_DIR/hg19/ucsc.hg19.fasta"
     ref = pysam.FastaFile(fasta)
     reference = ref.fetch('chr2', 179431346, 179437577)
+
+    reference = "ttagggagaaaccagattagacgtgacgggatttacgAAAAAAATCTCTCTCTAACGATGCTAAACGCGCTAGCTAGCTGTAGCGAC"
+    query_seq = "ttagggagaaaccagattagacgtgacgggatttacgAAAAAAATCTCTCTCTAattagacgtgacgggatttacgAAAAAAATCTCTCTCTAACGATGCTAAACGCGCTAGCTAGCTGTAGCGAC"
+
 
 
     blat = Blat(k=21, ref=reference, chr="chr2", start=179431346, end=179437577)
