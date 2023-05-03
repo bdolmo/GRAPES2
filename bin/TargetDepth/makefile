@@ -5,13 +5,13 @@ RM=rm
 
 SEQLIB= ../SeqLib
 INC= -I ../htslib -I ../SeqLib/htslib/htslib -I ../SeqLib -L ../SeqLib/htslib
-LIB= -L ../SeqLib/htslib -L ../SeqLib/bin -Lhtslib
-
+LIB= -L ../SeqLib/htslib -L ../SeqLib/bin
+LDFLAGS= -static -L ../SeqLib/bin -lseqlib -lhts -lz -llzma -lbz2
 
 %.o: src/%.cpp
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	$(CC) -I${SEQLIB} $(INC) $(LIB) -O2 -lhts -lseqlib -c -std=c++11 -o "$@" "$<"
+	$(CC) -I${SEQLIB} $(INC) $(LIB) -O2 -c -std=c++11 -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
@@ -25,7 +25,7 @@ ExtractDepth.o \
 TargetDepth: $(OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker' 
-	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LIB) $(INC) -I${SEQLIB} -O2 -lhts -lseqlib -lboost_program_options
+	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LDFLAGS) $(INC) -I${SEQLIB} -O2 -lboost_program_options
 	export LD_LIBRARY_PATH=../SeqLib/htslib
 	@echo 'Finished building target: $@'
 	@echo ' '
