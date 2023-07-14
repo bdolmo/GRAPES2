@@ -61,6 +61,20 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         output = p1.stdout.decode("UTF-8")
         error = p1.stderr.decode("UTF-8")
 
+    if not check_first_line(per_base_coverage_file):
+        per_base_coverage_file_tmp = per_base_coverage_file.replace(".bed", ".tmp.bed")
+        o = open(per_base_coverage_file_tmp, "w")
+        with open (per_base_coverage_file) as f:
+            for line in f:
+                if line.startswith("chr\tstart"):
+                    o.write("#" + line)
+                    continue
+                o.write(line)
+        f.close()
+        o.close()
+        os.remove(per_base_coverage_file)
+        os.rename(per_base_coverage_file_tmp, per_base_coverage_file)
+
     summary_log_name = "summary_metrics.log"
     summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
     with open(summary_log) as f:
@@ -181,3 +195,12 @@ def extract_read_depth_exome(sample_list, analysis_dict, ngs_utils_dict, ann_dic
 
     analysis_dict = unify_read_depths(sample_list, analysis_dict)
     return sample_list, analysis_dict
+
+
+def check_first_line(filename):
+    with open(filename, 'r') as file:
+        first_line = file.readline().strip()  # Reads the first line and removes any leading/trailing whitespace
+        if first_line.startswith("#"):  # Checks if the first line starts with "#"
+            return True
+        else:
+            return False

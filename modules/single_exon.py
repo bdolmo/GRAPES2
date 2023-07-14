@@ -13,7 +13,7 @@ import numpy as np
 import pybedtools
 import math
 from modules.utils import remove_bed_header, signal_to_noise
-from modules.plot import plot_single_exon
+from modules.plot import plot_single_exon_cnv
 
 
 def get_samples_from_header(coverage_bed) -> dict():

@@ -10,12 +10,11 @@ def signal_to_noise(data):
     """ """
     median = np.median(data)
     std = np.std(data)
-
     if std == 0:
         s2n = 0
     else:
-        s2n = abs(round(median / std, 3))
-    return s2n
+        s2n = abs(median / std)
+    return round(s2n, 3)
 
 
 def remove_bed_header(file, pattern):

@@ -13,8 +13,9 @@ from modules.ratio import calculate_coverage_ratios
 from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
 from modules.call import (
     call_cnvs,
-    call_raw_segmented_cnvs,
+    call_raw_cnvs,
     call_raw_single_exon_cnv,
+    filter_single_exon_cnv,
     unify_raw_calls,
     export_all_calls,
 )
@@ -57,7 +58,7 @@ def main(args):
         sample_list, analysis_dict, ann_dict
     )
 
-    # Plot nromaliation profiles
+    # Plot normalization profiles
     # sample_list = plot_normalization(sample_list, analysis_dict)
 
     sample_list, analysis_dict = launch_sample_clustering(sample_list, analysis_dict)
@@ -69,25 +70,28 @@ def main(args):
     # for gene in genes:
     #     for sample in sample_list:
     #         plot_gene(sample.name, sample_list, gene, analysis_dict)
-
     # obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
+
     sample_list = custom_hmm_seg(sample_list, analysis_dict)
-    sample_list = call_raw_segmented_cnvs(
+    sample_list = call_raw_cnvs(
         sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
     )
-    sample_list = call_raw_single_exon_cnv(
-        sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
+    # sample_list = call_raw_single_exon_cnv(
+    #     sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
+    # )
+
+    filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
+        args.lower_dup_cutoff, analysis_dict
     )
+
     sample_list = unify_raw_calls(sample_list)
 
     evaluate_single_exon_cnvs(sample_list, analysis_dict)
-    sys.exit()
 
+    sample_list = call_cnvs(sample_list, -0.621, 0.433, 2.58)
     sample_list = export_all_calls(sample_list, analysis_dict)
-    # sample_list = call_cnvs(sample_list, -0.621, 0.433, 2.58)
 
     for sample in sample_list:
-        # Instantiating a CnvPlot object
         cnp = CnvPlot(
             cnr_file=sample.ratio_file,
             cns_file=".",
@@ -99,6 +103,7 @@ def main(args):
         )
         # Plotting genomewide CNV profile
         sample_plot = cnp.plot_genomewide(genomewide=True, by_chr=False)
+    sys.exit()
 
 
 def parse_arguments():

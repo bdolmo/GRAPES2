@@ -176,63 +176,42 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         plt.close()
 
 
-def plot_single_exon(data, case_sample, exon, output_file):
-    """ """
-    df = pd.DataFrame.from_dict(data)
+def plot_single_exon_cnv(df, sample, variant_title):
 
-    min_ratio = df["log2_ratio"].min()
-    max_ratio = df["log2_ratio"].max()
+    fig = plt.figure(figsize=(10,6))
+    
+    # Get the columns for the samples based on their position in the dataframe
+    sample_cols = df.columns[4:]
+    df["Position"] = df.index + df["start"].astype(int)
+    # Plot each sample
+    for i, col in enumerate(sample_cols):
+        if i == 0:  # This is the first sample
+            sns.lineplot(data=df, x=df["Position"], y=col, color='red', label=col)
+        else:
+            sns.lineplot(data=df, x=df["Position"], y=col, color='grey', label='_nolegend_')
 
-    min_limit = -1
-    if min_ratio < min_limit:
-        min_limit = min_ratio - 0.2
+    plt.ylabel("Log2 ratio")
+    plt.xlabel("Position")
+    plt.title(variant_title)
+    # plt.ylim(-2, 1.3)
 
-    max_limit = 0.58
-    if max_ratio > max_limit:
-        max_limit = max_limit + 0.2
+    # Add a secondary axis for the copy number
+    ax2 = plt.twinx()
+    ax2.set_ylim(-2, 1.3)  # Set the same limits for the secondary y-axis
+    # Set the tick labels for the secondary y-axis
+    ax2.set_yticks([-2, -1, 0, 0.584, 1])  # log2 ratios for copy numbers 0, 1, 2, 3, 4
+    ax2.set_yticklabels([0, 1, 2, 3, 4])  # Corresponding copy numbers
+    ax2.set_ylabel("Copy number")  # Set label for the secondary y-axis
 
-    palette = {
-        c: "red" if c == case_sample else "darkgrey" for c in df["sample"].unique()
-    }
-    sns.set(rc={"figure.dpi": 180, "savefig.dpi": 180})
-    sns.set_style("ticks")
-    fig, ax = plt.subplots(figsize=(15, 7))
-    # fig.suptitle(self._sample, fontsize=20)
-    ax.axhline(0.433, ls="--", color="blue", zorder=1)
-    ax.axhline(-0.621, ls="--", color="red", zorder=1)
 
-    ax = sns.lineplot(
-        data=df,
-        x="position",
-        y="log2_ratio",
-        hue="sample",
-        size="class",
-        linewidth=1.5,
-        sizes=(3, 1.5),
-        palette=palette,
-        legend=False,
-        zorder=2,
-    )
+    png_file = os.path.join(sample.sample_folder, variant_title)
+    plt.savefig(png_file, format='png', dpi=300)
+    fig.clear()
+    fig.clf()
 
-    label_format = "{:,.0f}"
-    ticks_loc = ax.get_xticks().tolist()
-    ax.set_xticks(ax.get_xticks().tolist())
-    ax.set_xticklabels([label_format.format(x) for x in ticks_loc])
-
-    # after plotting the data, format the labels
-    # current_values = ax.get_xticks()
-    # using format string '{:.0f}' here but you can choose others
-    # ax.set_xticklabels(['{:.0f}'.format(x) for x in current_values])
-
-    # ax.set_xticklabels(ax.get_xticklabels(),rotation =60)
-    ax.set_title(case_sample + "-" + exon, fontsize=20)
-    ax.set(ylim=(min_limit, max_limit))
-    ax.set_ylabel("log2 Ratio", fontsize=15)
-    ax.set_xlabel("coordinate", fontsize=15)
-
-    # ax.set_xticks(ticks, labels, rotation=45, ha='right', rotation_mode='anchor')
-    fig.savefig(output_file)
     plt.close()
+    plt.close(fig)
+
 
 
 class CnvPlot:

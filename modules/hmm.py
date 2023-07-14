@@ -155,10 +155,10 @@ class CustomHMM:
         omega[0, :] = np.log(start_p) + B[0, :]
 
         prev = np.zeros((T - 1, M))
-
+        epsilon = 1e-8  # a small constant
         for t in range(1, T):
             for j in range(M):
-                probability = omega[t - 1] + np.log(A[:, j]) + B[t, j]
+                probability = omega[t - 1] + np.log(A[:, j] + epsilon) + B[t, j]
 
                 # This is our most probable state given previous state at time t (1)
                 prev[t - 1, j] = np.argmax(probability)
@@ -167,7 +167,7 @@ class CustomHMM:
                 omega[t, j] = np.max(probability)
 
                 # Workaround when all state probs are inifite, this caused to immediately
-                # assign 0 state
+                # assign a 0 state
                 if np.isinf(omega[t, j]):
                     omega[t, j] = -10000000
 

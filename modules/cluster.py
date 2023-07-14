@@ -87,8 +87,6 @@ def cluster_samples(corr_tsv, sample_list, min_correlation=0.91, min_refs=1):
         )
         sample.add("references", ref_dict)
 
-    sys.exit()
-
     return sample_list
 
 

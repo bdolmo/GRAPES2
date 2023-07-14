@@ -28,7 +28,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
     merged_df = pd.read_csv(analysis_dict["normalized_depth"], sep="\t")
     for sample in sample_list:
 
-        msg = (" INFO: Calculating coverage ratios for sample {}").format(sample.name)
+        msg = f" INFO: Calculating coverage ratios for sample {sample.name}"
         logging.info(msg)
 
         baseline_samples = []
@@ -56,9 +56,6 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
                 sample=normalized_depth_tag,
                 axis=1,
             )
-
-            # Filter low mappability and extreme gc content bins
-            # new_df = new_df.loc[(new_df['map'] >= 90) & (new_df['gc'] >=30) & (new_df['gc'] < 75 )]
 
             # Now substract sample ratios
             new_df = new_df[["chr", "start", "end", "exon", "gc", "map", sample_ratio]]
