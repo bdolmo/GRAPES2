@@ -14,7 +14,6 @@ from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
 from modules.call import (
     call_cnvs,
     call_raw_cnvs,
-    call_raw_single_exon_cnv,
     filter_single_exon_cnv,
     unify_raw_calls,
     export_all_calls,
@@ -76,17 +75,13 @@ def main(args):
     sample_list = call_raw_cnvs(
         sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
     )
-    # sample_list = call_raw_single_exon_cnv(
-    #     sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
-    # )
 
     filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
         args.lower_dup_cutoff, analysis_dict
     )
 
     sample_list = unify_raw_calls(sample_list)
-
-    evaluate_single_exon_cnvs(sample_list, analysis_dict)
+    # evaluate_single_exon_cnvs(sample_list, analysis_dict)
 
     sample_list = call_cnvs(sample_list, -0.621, 0.433, 2.58)
     sample_list = export_all_calls(sample_list, analysis_dict)

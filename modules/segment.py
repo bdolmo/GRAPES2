@@ -20,9 +20,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
     """ """
     obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
     for sample in sample_list:
-        # if sample.name != "RB30960_9999999.rmdup":
-        #     continue
-        # print(sample.name)
+
         chr_dict = load_observations_by_chr(sample.ratio_file)
 
         segment_file_name = ("{}.segment.bed").format(sample.name)
@@ -45,15 +43,18 @@ def custom_hmm_seg(sample_list, analysis_dict):
         logging.info(msg)
 
         for chr in chr_dict:
-            # if chr != "chr7":
-            #     continue
+
             model = CustomHMM(obs_dict, sample.name, chr)
             model.compute_log_likelihood()
-            states = model.decode()
+            states, phred_scores = model.decode()
+            # posterior_probs = model.posterior_decoding()
+
             idx = 0
             unmerged_list = []
             for item in chr_dict[chr]:
                 state = states[idx]
+                # posterior_prob = posterior_probs[idx, int(state)]
+                phred = phred_scores[idx][int(state)]
                 tmp = item["region"].split("\t")
                 data_dict = {
                     "chr": tmp[0],
@@ -64,10 +65,12 @@ def custom_hmm_seg(sample_list, analysis_dict):
                     "map": tmp[5],
                     "log2_ratio": tmp[6],
                     "state": str(state),
+                    "phred": phred
                 }
+                # print(data_dict)
                 idx += 1
                 unmerged_list.append(data_dict)
-                p.write(item["region"] + "\t" + str(state) + "\n")
+                p.write(item["region"] + "\t" + str(state) + "\t" + str(phred)+ "\n")
             merged_list = merge_segments(unmerged_list)
             for item in merged_list:
                 out_list = []
@@ -120,7 +123,7 @@ def gaussian_hmm(sample_list):
                 log2_ratio_list.append(float(item["log2_ratio"]))
             arr = np.array(log2_ratio_list)
             arr = arr.reshape(-1, 1)
-            prob = model.decode(arr)
+            prob, phred_scores = model.decode(arr)
             prob = prob[1].tolist()
             idx = 0
             unmerged_list = []
@@ -172,6 +175,7 @@ def merge_segments(unmerged_list):
             max_end = 0
             region_list = []
             ratio_list = []
+            phred_list = []
             for item in merging_items:
                 if int(item["start"]) < min_start:
                     min_start = int(item["start"])
@@ -179,6 +183,10 @@ def merge_segments(unmerged_list):
                     max_end = int(item["end"])
                 ratio_list.append(float(item["log2_ratio"]))
                 region_list.append(item["region"])
+                phred_list.append(item["phred"])
+
+            # Compute average posterior probability
+            mean_phred = np.mean(phred_list)  
             mean_ratio = round(np.median(ratio_list), 3)
             new_segment = {
                 "chr": first_dict["chr"],
@@ -188,6 +196,7 @@ def merge_segments(unmerged_list):
                 "n_regions": str(len(region_list)),
                 "log2_ratio": mean_ratio,
                 "state": first_dict["state"],
+                "phred": mean_phred
             }
             # merged_list.append(first_dict)
             merged_list.append(new_segment)
@@ -201,6 +210,7 @@ def merge_segments(unmerged_list):
         max_end = 0
         region_list = []
         ratio_list = []
+        phred_list = []
 
         for item in merging_items:
             if int(item["start"]) < min_start:
@@ -209,6 +219,8 @@ def merge_segments(unmerged_list):
                 max_end = int(item["end"])
             ratio_list.append(float(item["log2_ratio"]))
             region_list.append(item["region"])
+            phred_list.append(item["phred"])
+        mean_phred = np.mean(phred_list)  
         mean_ratio = round(np.median(ratio_list), 3)
         new_segment = {
             "chr": first_dict["chr"],
@@ -218,6 +230,7 @@ def merge_segments(unmerged_list):
             "n_regions": str(len(region_list)),
             "log2_ratio": mean_ratio,
             "state": first_dict["state"],
+            "phred": mean_phred
         }
         # merged_list.append(first_dict)
         merged_list.append(new_segment)

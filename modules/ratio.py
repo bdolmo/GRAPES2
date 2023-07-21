@@ -36,19 +36,19 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
         for oth in sample.references:
             if num > 10:
                 break
-            normalized_depth_tag = ("{}_normalized_final").format(oth[0])
+            normalized_depth_tag = f"{oth[0]}_normalized_final"
             baseline_samples.append(normalized_depth_tag)
             num += 1
 
-        ratio_file_name = ("{}.ratios.bed").format(sample.name)
+        ratio_file_name = f"{sample.name}.ratios.bed"
         ratio_file = str(Path(sample.sample_folder) / ratio_file_name)
         sample.add("ratio_file", ratio_file)
 
         # if not os.path.isfile(ratio_file):
         if not os.path.isfile(ratio_file):
 
-            sample_ratio = ("{}_ratio").format(sample.name)
-            normalized_depth_tag = ("{}_normalized_final").format(sample.name)
+            sample_ratio = f"{sample.name}_ratio"
+            normalized_depth_tag = f"{sample.name}_normalized_final"
             new_df = merged_df
             new_df[sample_ratio] = merged_df.apply(
                 do_ratio_ref,
@@ -60,10 +60,25 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             # Now substract sample ratios
             new_df = new_df[["chr", "start", "end", "exon", "gc", "map", sample_ratio]]
             df_list.append(new_df)
+
+            mean_ratio = new_df[sample_ratio].mean()
+            std_ratio = new_df[sample_ratio].std()
+
+            sample.add("mean_log2_ratio", mean_ratio)
+            sample.add("std_log2_ratio", std_ratio)
+
             # Write dataframe as bed
             new_df.to_csv(ratio_file, sep="\t", mode="w", index=None)
         else:
             new_df = pd.read_csv(ratio_file, sep="\t")
+            mean_ratio = new_df[sample_ratio].mean()
+            std_ratio = new_df[sample_ratio].std()
+
+            sample.add("mean_log2_ratio", mean_ratio)
+            sample.add("std_log2_ratio", std_ratio)
+            print(mean_ratio, std_ratio)
+            sys.exit()
+
             df_list.append(new_df)
 
     result = reduce(

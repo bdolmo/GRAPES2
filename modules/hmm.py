@@ -19,7 +19,7 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
         num = 0
         sample_depth_tag = ("{}_normalized_final").format(sample.name)
         for control in sample.references:
-            if num > 15:
+            if num > 10:
                 break
             control_depth_tag = ("{}_normalized_final").format(control[0])
             baseline_samples.append(control_depth_tag)
@@ -60,6 +60,24 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
     # sys.exit()
     return observations_dict
 
+def convert_params(mu, alpha):
+    """ 
+    Convert mean/dispersion parameterization of a negative binomial to the ones scipy supports
+
+    Parameters
+    ----------
+    mu : float 
+       Mean of NB distribution.
+    alpha : float
+       Overdispersion parameter used for variance calculation.
+
+    See https://en.wikipedia.org/wiki/Negative_binomial_distribution#Alternative_formulations
+    """
+    var = mu + alpha * mu ** 2
+    p = (var - mu) / var
+    r = mu ** 2 / (var - mu)
+    return r, p
+
 
 class CustomHMM:
     """ """
@@ -78,9 +96,18 @@ class CustomHMM:
         self._sample = sample
         self._chr = chr
         self._n_components = n_components
-        self._transitions = transitions
+        self._transitions = np.array(
+            [
+                [0.5, 0, 0.5, 0, 0],
+                [0, 0.5, 0.5, 0, 0],
+                [0.01, 0.01, 0.96, 0.01, 0.01],
+                [0, 0, 0.5, 0.5, 0],
+                [0, 0, 0.5, 0, 0.5],
+            ]
+        )
+
         self._emissions = emissions
-        self._start_prob = start_prob
+        self._start_prob = np.array([0.20, 0.20, 0.20, 0.20, 0.20])
         self._emissions = self.compute_log_likelihood()
 
     @property
@@ -97,33 +124,101 @@ class CustomHMM:
         logp_dict = defaultdict(dict)
         emissions = []
         idx = 0
+        epsilon = 1e-8  # a small constant
+
         for region in self._obs_dict[self._chr]:
             sample_depth = region[self._sample]["normalized_depth"]
             bg_depth = region[self._sample]["bg_mean"]
             bg_std = region[self._sample]["bg_std"]
             coord = region[self._sample]["coordinate"]
+            if bg_std < epsilon:
+                bg_std = epsilon
+
             logp_dict[idx] = defaultdict(dict)
             state_list = []
             depth_list = []
             probs_list = []
+            epsilon = 1e-8  # a small constant
             for state in range(self._n_components):
+
+                if state == 0:
+                    state = 0.01
+
                 ratio = state / 2
                 x = sample_depth
 
                 # x = sample_depth*ratio
                 mean_state = bg_depth * ratio
+
                 std_state = bg_std
                 if x == 0:
                     x = 1
                 logp_dict[idx][state] = round(
-                    np.log(norm.pdf(x, loc=mean_state, scale=bg_std)), 3
+                    np.log(norm.pdf(x, loc=mean_state, scale=bg_std)+epsilon), 6
                 )
                 probs_list.append(norm.pdf(x, loc=bg_depth, scale=bg_std))
+
                 state_list.append(logp_dict[idx][state])
                 depth_list.append(str(state) + ":" + str(x))
+
             emissions.append(state_list)
             idx += 1
         return emissions
+
+    def forward(self):
+        """
+        Forward algorithm.
+        """
+        T = len(self.observations)
+        M = self._n_components
+
+        alpha = np.zeros((T, M))
+
+        # Initialization
+
+        alpha[0, :] = self._start_prob * np.array(self._emissions[0])
+
+        for t in range(1, T):
+            for j in range(M):
+                alpha[t, j] = alpha[t - 1].dot(self._transitions[:, j]) * self._emissions[t][j]
+
+        return alpha
+
+    def backward(self):
+        """
+        Backward algorithm.
+        """
+        T = len(self.observations)
+        M = self._n_components
+
+        beta = np.zeros((T, M))
+
+        # Initialization
+        beta[T - 1] = np.ones((M))
+
+        for t in range(T - 2, -1, -1):
+            for j in range(M):
+                beta[t, j] = (beta[t + 1] * np.array(self._emissions[t + 1]) * self._transitions[j, :]).sum()
+
+        return beta
+
+    def posterior_decoding(self):
+        """
+        Posterior decoding (forward-backward algorithm).
+        """
+        alpha = self.forward()
+        beta = self.backward()
+
+
+        posterior_probs = np.multiply(alpha, beta) / np.sum(np.multiply(alpha, beta), axis=1)[:, np.newaxis]
+
+        # print(self._emissions[0])
+        # print(posterior_probs[0])
+
+        sys.exit()
+
+        return posterior_probs
+
 
     def decode(self):
         """
@@ -151,14 +246,35 @@ class CustomHMM:
         M = S.shape[0]
 
         # Initialization
+        epsilon = 1e-8  # a small constant
         omega = np.zeros((T, M))
-        omega[0, :] = np.log(start_p) + B[0, :]
+        omega[0, :] = np.log(start_p + epsilon) + B[0, :]
 
         prev = np.zeros((T - 1, M))
-        epsilon = 1e-8  # a small constant
+        phred_scores = np.zeros((T, M))
+        #phred_scores = []
         for t in range(1, T):
+            list_phreds = []
+
             for j in range(M):
                 probability = omega[t - 1] + np.log(A[:, j] + epsilon) + B[t, j]
+                max_log_prob = np.max(probability)
+
+                # Subtract max log probability for numerical stability, exponentiate and normalize
+                probs = np.exp(probability - max_log_prob)
+                probs /= np.sum(probs)
+
+                # Calculate error probabilities
+                error_probs = 1 - probs
+
+                # Calculate Phred scores
+                Q = -10 * np.log10(error_probs)
+                # Round to nearest integer
+                Q_rounded = np.round(Q)
+
+                # Cap at 60
+                Q_capped = np.clip(Q_rounded, 0, 60)
+                phred_scores[t, j] = np.max(Q_capped)
 
                 # This is our most probable state given previous state at time t (1)
                 prev[t - 1, j] = np.argmax(probability)
@@ -170,6 +286,8 @@ class CustomHMM:
                 # assign a 0 state
                 if np.isinf(omega[t, j]):
                     omega[t, j] = -10000000
+
+        # print(omega)
 
         # Path Array
         X = np.zeros(T)
@@ -187,13 +305,12 @@ class CustomHMM:
 
         # Flip the path array since we were backtracking
         X = np.flip(X, axis=0)
-
         # Convert numeric values to actual hidden states
         result = []
         for x in X:
             result.append(str(int(x)))
 
-        return result
+        return result, phred_scores
 
 
 if __name__ == "__main__":
