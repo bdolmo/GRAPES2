@@ -30,6 +30,9 @@ def export_all_calls(sample_list, analysis_dict):
 
     for sample in sample_list:
 
+        if sample.analyzable == "False":
+            continue
+
         original = sample.cnv_calls_bed
         target_name = f'{sample.name}.GRAPES2.bed'
         target = os.path.join(analysis_dict["output_dir"], target_name)
@@ -96,9 +99,10 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
     for sample in sample_list:
 
-        if sample.name != "CA17339":
+        # if sample.name != "CA17339":
+        #     continue
+        if sample.analyzable == "False":
             continue
-
         msg = f" INFO: Calling single-exon CNVs on sample {sample.name}"
         logging.info(msg)
 
@@ -214,7 +218,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
             candidate_cnvs[cnv_call]["dataframe"] = \
                 pd.DataFrame.from_records(candidate_cnvs[cnv_call]["list_rows"])
-            plot_single_exon_cnv(candidate_cnvs[cnv_call]["dataframe"], sample, variant_title)
+            # plot_single_exon_cnv(candidate_cnvs[cnv_call]["dataframe"], sample, variant_title)
 
             s2n_case = signal_to_noise(candidate_cnvs[cnv_call]["case_ratios"])
             median_cov_case =  np.median(candidate_cnvs[cnv_call]["case_coverage"])
@@ -240,7 +244,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
         #     sys.exit()
 
 
-    sys.exit()
+    # sys.exit()
 
 
 def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
@@ -250,6 +254,10 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
     upper_del_threshold = float(upper_del_threshold)
     dup_threshold = float(dup_threshold)
     for sample in sample_list:
+
+        if sample.analyzable == "False":
+            continue
+
         msg = f" INFO: Calling segmented CNVs on sample {sample.name}"
         logging.info(msg)
 
@@ -289,7 +297,7 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
                 cn = int(tmp[6])
                 phred_score = float(tmp[7])
 
-                if phred_score < 20:
+                if phred_score < 15:
                     continue
                     
                 cnvtype = ""
@@ -310,46 +318,57 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
                             seen_roi_dict[coordinate] = coordinate
                             outline = f"{line}\t1\t{cnvtype}\n"
                             q.write(outline)
+                            o.write(outline)
+                            p.write(outline)
         seg.close()
         o.close()
         p.close()
 
-        with open(sample.ratio_file) as f:
-            for line in f:
-                line = line.rstrip("\n")
-                if line.startswith("chr\tstart"):
-                    continue
-                tmp = line.split("\t")
-                chr = tmp[0]
-                start = tmp[1]
-                end = tmp[2]
-                region = tmp[3]
-                # phred_score = float(tmp[7])
-                # if phred_score < 20:
-                #     continue
+        # with open(sample.ratio_file) as f:
+        #     for line in f:
+        #         line = line.rstrip("\n")
+        #         if line.startswith("chr\tstart"):
+        #             continue
+        #         tmp = line.split("\t")
+        #         chr = tmp[0]
+        #         start = tmp[1]
+        #         end = tmp[2]
+        #         region = tmp[3]
+        #         # phred_score = float(tmp[7])
+        #         # if phred_score < 20:
+        #         #     continue
 
-                coordinate = f"{chr}\t{start}\t{end}"
-                if coordinate in seen_roi_dict:
-                    continue
+        #         coordinate = f"{chr}\t{start}\t{end}"
+        #         if coordinate in seen_roi_dict:
+        #             continue
 
-                #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
-                log2_ratio = float(tmp[-1])
-                fold_change = 2 ** (log2_ratio)
-                cn = str(int( (fold_change * 2)+.5))
-                tmp_list = [chr, start, end, region, "1", str(log2_ratio), "1", "60"]
+        #         #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
+        #         log2_ratio = float(tmp[-1])
+        #         fold_change = 2 ** (log2_ratio)
 
-                if log2_ratio <= upper_del_threshold:
-                    cnvtype = "DEL"
-                    tmp_list.append(cn)
-                    tmp_list.append(cnvtype)
-                    q.write("\t".join(tmp_list) + "\n")
-                if log2_ratio >= dup_threshold:
-                    cnvtype = "DUP"
-                    tmp_list.append(cn)
-                    tmp_list.append(cnvtype)
-                    q.write("\t".join(tmp_list) + "\n")
-        f.close()
-        q.close()
+        #         zscore = (log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio
+
+        #         cn = str(int( (fold_change * 2)+.5))
+        #         tmp_list = [chr, start, end, region, "1", str(log2_ratio), "1", "60"]
+        #         # if log2_ratio <= upper_del_threshold:
+        #         #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
+                 
+        #         # if log2_ratio >= dup_threshold:
+        #         #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
+
+        #         if log2_ratio <= upper_del_threshold and abs(zscore) > 1.5:
+        #             cnvtype = "DEL"
+        #             tmp_list.append(cn)
+        #             tmp_list.append(cnvtype)
+        #             q.write("\t".join(tmp_list) + "\n")
+        #         if log2_ratio >= dup_threshold and abs(zscore) > 1.5:
+        #             cnvtype = "DUP"
+        #             tmp_list.append(cn)
+        #             tmp_list.append(cnvtype)
+        #             q.write("\t".join(tmp_list) + "\n")
+        # f.close()
+        # q.close()
+        # sys.exit()
     return sample_list
 
 
@@ -359,6 +378,10 @@ def unify_raw_calls(sample_list):
     """
 
     for sample in sample_list:
+
+        if sample.analyzable == "False":
+            continue
+
         df_list = []
         bed_list = [sample.raw_seg_calls, sample.filtered_single_exon_calls]
 
@@ -383,6 +406,10 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
     dup_threshold = float(dup_threshold)
 
     for sample in sample_list:
+
+        if sample.analyzable == "False":
+            continue
+
         msg = f" INFO: Calling CNVs on sample {sample.name}"
         logging.info(msg)
 
@@ -421,6 +448,8 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
         for variant in segmented_cnvs_dict:
             arr = np.array(segmented_cnvs_dict[variant])
             std = round(np.std(arr), 3)
+            if std >= 0.3:
+                continue
             outline = f"{variant}\t{str(std)}\n"
             # print(sample.name +" " + outline)
             o.write(outline)

@@ -213,6 +213,14 @@ def plot_single_exon_cnv(df, sample, variant_title):
     plt.close(fig)
 
 
+def plot_svd_removal(df, png_file):
+
+    plt.figure(figsize=(10, 10))
+    sns.scatterplot(x='PC1', y='PC2', data=df)
+    plt.title('First two Principal Components')
+    plt.savefig(png_file, format='png', dpi=300)
+    plt.close()
+
 
 class CnvPlot:
     """

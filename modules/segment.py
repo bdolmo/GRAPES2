@@ -23,11 +23,11 @@ def custom_hmm_seg(sample_list, analysis_dict):
 
         chr_dict = load_observations_by_chr(sample.ratio_file)
 
-        segment_file_name = ("{}.segment.bed").format(sample.name)
+        segment_file_name = f"{sample.name}.segment.bed"
         segment_file = str(Path(sample.sample_folder) / segment_file_name)
         sample.add("segment_file", segment_file)
 
-        segment_file_extended_name = ("{}.extended.segment.bed").format(sample.name)
+        segment_file_extended_name = f"{sample.name}.extended.segment.bed"
         segment_file_extended = str(
             Path(sample.sample_folder) / segment_file_extended_name
         )
@@ -39,21 +39,18 @@ def custom_hmm_seg(sample_list, analysis_dict):
         o = open(segment_file, "w")
         p = open(segment_file_extended, "w")
 
-        msg = (" INFO: segmenting sample {}").format(sample.name)
+        msg = f" INFO: segmenting sample {sample.name}"
         logging.info(msg)
 
         for chr in chr_dict:
 
             model = CustomHMM(obs_dict, sample.name, chr)
-            model.compute_log_likelihood()
             states, phred_scores = model.decode()
-            # posterior_probs = model.posterior_decoding()
 
             idx = 0
             unmerged_list = []
             for item in chr_dict[chr]:
                 state = states[idx]
-                # posterior_prob = posterior_probs[idx, int(state)]
                 phred = phred_scores[idx][int(state)]
                 tmp = item["region"].split("\t")
                 data_dict = {
@@ -79,6 +76,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 o.write("\t".join(out_list) + "\n")
         o.close()
         p.close()
+        # sys.exit()
 
     return sample_list
 
@@ -88,19 +86,19 @@ def gaussian_hmm(sample_list):
     gaussian with fixed emission hmm segmentation
     """
     np.random.seed(42)
-    model = hmm.GaussianHMM(n_components=4, covariance_type="diag")
+    # model = hmm.GaussianHMM(n_components=4, covariance_type="diag")
 
-    model.startprob_ = np.array([0.25, 0.25, 0.25, 0.25])
-    model.transmat_ = np.array(
-        [
-            [0.5, 0.0, 0.5, 0.0],
-            [0.0, 0.5, 0.5, 0.0],
-            [0.01, 0.01, 0.97, 0.01],
-            [0.0, 0.0, 0.5, 0.5],
-        ]
-    )
-    model.means_ = np.array([[-3], [-1], [0], [0.5]])
-    model.covars_ = np.array([[0.1]])
+    # model.startprob_ = np.array([0.01, 0.01, 0.97, 0.01])
+    # model.transmat_ = np.array(
+    #     [
+    #         [0.5, 0.0, 0.5, 0.0],
+    #         [0.0, 0.5, 0.5, 0.0],
+    #         [0.01, 0.01, 0.97, 0.01],
+    #         [0.0, 0.0, 0.5, 0.5],
+    #     ]
+    # )
+    # model.means_ = np.array([[-3], [-1], [0], [0.5]])
+    # model.covars_ = np.array([[0.1]])
 
     for sample in sample_list:
         segment_file_name = ("{}.segment.bed").format(sample.name)
@@ -108,7 +106,7 @@ def gaussian_hmm(sample_list):
         sample.add("segment_file", segment_file)
         o = open(segment_file, "w")
 
-        segment_file_extended_name = ("{}.extended.segment.bed").format(sample.name)
+        segment_file_extended_name = f"{sample.name}.extended.segment.bed"
         segment_file_extended = str(
             Path(sample.sample_folder) / segment_file_extended_name
         )
@@ -150,6 +148,7 @@ def gaussian_hmm(sample_list):
                 for val in item:
                     out_list.append(str(item[val]))
                 o.write("\t".join(out_list) + "\n")
+            sys.exit()
         o.close()
     return sample_list
 

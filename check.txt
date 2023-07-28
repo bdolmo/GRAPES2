@@ -5,3 +5,4 @@
  INFO: Found annotation mappability
  INFO: Extracting mappability
  INFO: Skipping mappability extraction
+ INFO: Normalizing exon level coverage by gc

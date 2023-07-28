@@ -17,6 +17,11 @@ from collections import defaultdict
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.preprocessing import QuantileTransformer
+from sklearn.linear_model import LinearRegression
+from sklearn.decomposition import TruncatedSVD
+from sklearn.utils.extmath import randomized_svd
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
 
 def normalize_read_depth(bed_file, window_size=100):
     # Read the BED file into a pandas DataFrame
@@ -57,66 +62,54 @@ def normalize_read_depth(bed_file, window_size=100):
     normalized_df.to_csv(normalized_bed, sep='\t', index=False)
     return normalized_bed
 
+def loess_normalization(df, sample_name, field):
+    lowess_smoothed = lowess(df[field], df['gc'], frac=0.1)
+    df[f"{sample_name}_normalized_final"] = lowess_smoothed[:, 1]
+
+    shift = abs(df[f"{sample_name}_normalized_final"].min())
+    df[f"{sample_name}_normalized_final"] += shift
+
+    return df
 
 
-def apply_pca(bed_file_path, explained_variance_ratio=0.20):
+def svd_noise_reduction(df, var_cutoff=0.9, max_components=25):
+    # Iterate over each sample
+
+    start_index = df.columns.get_loc('map') + 1
+    end_index = df.columns.get_loc('gc_bin')
+    depth_cols = [col for col in df.columns if col.endswith("_normalized_final")]
+    # depth_cols = df.columns[start_index:end_index]
+    # Center the data
+    # print(depth_cols)
+
+    colmeans = np.median(df[depth_cols], axis=0)
+    centered = df[depth_cols]-colmeans
+
+    # Compute the SVD
+    U, S, V = randomized_svd(centered, n_components=max_components, n_oversamples=max_components)
+
+    # Determine the number of components to keep
+    prop_v = np.cumsum(S**2 / np.sum(S**2))
+
+    print(prop_v)
+
+    n_components = np.nonzero(prop_v > var_cutoff)[0][0]
+    n_components = 15
+
+    X_projected = np.dot(centered, V[n_components:, :].T)
+    X_reconstructed = np.dot(X_projected, V[n_components:, :])
+    residuals = centered - X_reconstructed
+    shift_value = abs(np.min(residuals))
+    residuals += shift_value
+
+    # Add the residuals to the dataframe
+    #residual_cols = [col + '_normalized_final' for col in depth_cols]
+    residual_cols = [col + '_normalized_svd' for col in depth_cols]
 
 
-    # Open the file and read the headers
-    with open(bed_file_path, 'r') as bed_file:
-        headers = [line for line in bed_file if line.startswith('#')]
-    
-    # Read the BED file into a pandas DataFrame
-    df = pd.read_csv(bed_file_path, sep='\t', comment='#')
+    df[residual_cols] = pd.DataFrame(residuals, index=df.index)
 
-    # Keep only the columns corresponding to the samples
-    samples_columns = df.columns[6:]
-    df_samples = df[samples_columns]
-
-    # Standardizing the features
-    x = StandardScaler().fit_transform(df_samples)
-
-    # Apply PCA
-    pca = PCA()
-    x_pca = pca.fit_transform(x)
-
-    # Calculate the cumulative explained variance and find the number of components for the threshold
-    cumulative_explained_variance = np.cumsum(pca.explained_variance_ratio_)
-    num_components = np.argmax(cumulative_explained_variance >= explained_variance_ratio) + 1
-    print(f"REMOVING {num_components}")
-
-    # Create an array of zeros with the same shape as x_pca
-    x_pca_zeroed = np.zeros_like(x_pca)
-
-    # Copy the components that you want to remove to the zeroed array
-    x_pca_zeroed[:, :num_components] = x_pca[:, :num_components]
-
-
-    # Inverse transform the zeroed array and subtract the result from the original data
-    x_reconstructed = x - pca.inverse_transform(x_pca_zeroed)
-
-
-    # Scale the data to the range [0, 1]
-    scaler = MinMaxScaler()
-    x_scaled = scaler.fit_transform(x_reconstructed)
-
-    # Convert scaled data into a DataFrame
-    df_scaled = pd.DataFrame(data=x_scaled, columns=samples_columns)
-
-    # Convert scaled data into a DataFrame
-    df_scaled = pd.DataFrame(data=x_scaled, columns=samples_columns)
-
-    # Replace the original sample columns with the deflated data
-    df_final = df.drop(columns=samples_columns).join(df_scaled)
-
-
-    normalized_pca_per_base = bed_file_path.replace(".bed", ".pca.bed")
-
-    # Write the DataFrame to a new BED file
-    with open(normalized_pca_per_base, 'w') as out_file:
-        out_file.writelines(headers)
-        df_final.to_csv(out_file, sep='\t', index=False)
-
+    return df
 
 def launch_normalization(sample_list, analysis_dict, ann_dict):
     """ """
@@ -126,8 +119,9 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
         df = pd.read_csv(analysis_dict["unified_raw_depth"], sep="\t")
 
         # Calculate median coverage
-        median_depth = round(df[sample.name].median(), 2)
+        median_depth = round(df[sample.name].median(), 6)
         sample.add("median_depth", median_depth)
+
 
     # Normalize exon-level coverage by GC-content
     normalized_depth_name = f"{analysis_dict['output_name']}.normalized.depth.bed"
@@ -135,9 +129,9 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
     analysis_dict["normalized_depth"] = normalized_depth
 
     norm_factors = ["gc"]
-    if not os.path.isfile(normalized_depth):
-        df = normalize_exon_level(analysis_dict, sample_list, norm_factors)
-        df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
+    # if os.path.isfile(normalized_depth):
+    df = normalize_exon_level(analysis_dict, sample_list, norm_factors)
+    df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
 
     # Export exon level normalized coverage
     normalized_per_base_name = f"{analysis_dict['output_name']}.normalized.per.base.bed"
@@ -216,16 +210,19 @@ def normalize_per_base(sample_list, analysis_dict, fields):
                 o.write("\t".join(tmp[0:6]) + "\t" + "\t".join(norm_list) + "\n")
     o.close()
 
-    # apply_pca(analysis_dict["normalized_per_base"])
-
     return sample_list, analysis_dict
 
 
-def norm_by_lib(row, sample_name, total_reads):
+def norm_by_lib(row, sample_median, chrX_median, sample_name, total_reads):
     """ """
     length = row["end"] - row["start"]
-    norm_by_len = round(10e4 * (row[sample_name] / length), 3)
-    norm_lib = round(10e2 * (norm_by_len / total_reads), 3)
+
+    if row["chr"] == "chrX" or row["chr"] == 23 or row["chr"] == "X":
+        norm_lib = row[sample_name]/chrX_median
+    else:
+    # norm_by_len = round(10e4 * (row[sample_name] / length), 3)
+    # norm_lib = round(10e2 * (norm_by_len / total_reads), 3)
+        norm_lib = row[sample_name]/sample_median
     return norm_lib
 
 
@@ -238,17 +235,21 @@ def normalize_exon_level(analysis_dict, sample_list, fields):
     msg = f" INFO: Normalizing exon level coverage by {fields_str}"
     logging.info(msg)
 
-
     bins = np.arange(0, 105, 5) # assuming GC content is a fraction
 
     # Create a new column 'gc_bin' using pd.cut
     df['gc_bin'] = pd.cut(df['gc'], bins)
 
-
     for sample in sample_list:
         sample_lib_tag = f"{sample.name}_normalized_library"
+
+        sample_median = df[sample.name].median()
+        median_cov_chrX = round(df[(df["chr"] != "chrX")][sample.name].median(), 6)
+
         df[sample_lib_tag] = df.apply(
             norm_by_lib,
+            sample_median=sample_median,
+            chrX_median=median_cov_chrX,
             sample_name=sample.name,
             total_reads=sample.ontarget_reads,
             axis=1,
@@ -258,72 +259,77 @@ def normalize_exon_level(analysis_dict, sample_list, fields):
         idx = 0     
 
 
-        for field in fields:
-            idx += 1
-            field_int = f"{field}_integer"
+        df = loess_normalization(df, sample.name, sample_lib_tag)
 
-            # Get integer field (gc or map) value
-            df[field_int] = df[field].apply(int)
+        # for field in fields:
+        #     idx += 1
+        #     field_int = f"{field}_integer"
 
-            median_field_cov_autosomes = f"median_{field}_cov_autosomes"
-            median_field_cov_chrX = f"median_{field}_cov_chrX"
-            median_field_cov_chrY = f"median_{field}_cov_chrY"
+        #     # Get integer field (gc or map) value
+        #     df[field_int] = df[field].apply(int)
 
-            median_cov_autosomes = round(
-                df[(df["chr"] != "chrX") & (df["chr"] != "chrY")][cov_target].median(),
-                3,
-            )
-            median_cov_chrX = round(df[(df["chr"] != "chrX")][cov_target].median(), 3)
-            median_cov_chrY = round(df[(df["chr"] == "chrY")][cov_target].median(), 3)
+        #     median_field_cov_autosomes = f"median_{field}_cov_autosomes"
+        #     median_field_cov_chrX = f"median_{field}_cov_chrX"
+        #     median_field_cov_chrY = f"median_{field}_cov_chrY"
 
-            stats_dict = {
-                "median_cov_autosomes": median_cov_autosomes,
-                "median_cov_chrX": median_cov_chrX,
-                "median_cov_chrY": median_cov_chrY
-            }
+        #     median_cov_autosomes = round(
+        #         df[(df["chr"] != "chrX") & (df["chr"] != "chrY")][cov_target].median(),
+        #         6,
+        #     )
+        #     median_cov_chrX = round(df[(df["chr"] != "chrX")][cov_target].median(), 6)
+        #     median_cov_chrY = round(df[(df["chr"] == "chrY")][cov_target].median(), 6)
 
-            # Group coverage by field and calculate the median
-            df[median_field_cov_autosomes] = (
-                df[(df["chr"] != "chrX") & (df["chr"] != "chrY")]
-                .groupby("gc_bin")[cov_target]
-                .transform(
-                    median_by_interval,
-                    cov_target=cov_target,
-                    median=median_cov_autosomes,
-                )
-            )
-            df[median_field_cov_chrX] = (
-                df[(df["chr"] == "chrX")]
-                .groupby("gc_bin")[cov_target]
-                .transform(
-                    median_by_interval, cov_target=cov_target, median=median_cov_chrX
-                )
-            )
-            df[median_field_cov_chrY] = (
-                df[(df["chr"] == "chrY")]
-                .groupby("gc_bin")[cov_target]
-                .transform(
-                    median_by_interval, cov_target=cov_target, median=median_cov_chrY
-                )
-            )   
+        #     stats_dict = {
+        #         "median_cov_autosomes": median_cov_autosomes,
+        #         "median_cov_chrX": median_cov_chrX,
+        #         "median_cov_chrY": median_cov_chrY
+        #     }
 
-            #print(df.groupby("gc_bin").size().to_dict())
-            gc_bin_dict = df.groupby("gc_bin").size().to_dict()
+        #     # Group coverage by field and calculate the median
+        #     df[median_field_cov_autosomes] = (
+        #         df[(df["chr"] != "chrX") & (df["chr"] != "chrY")]
+        #         .groupby("gc_bin")[cov_target]
+        #         .transform(
+        #             median_by_interval,
+        #             cov_target=cov_target,
+        #             median=median_cov_autosomes,
+        #         )
+        #     )
+        #     df[median_field_cov_chrX] = (
+        #         df[(df["chr"] == "chrX")]
+        #         .groupby("gc_bin")[cov_target]
+        #         .transform(
+        #             median_by_interval, cov_target=cov_target, median=median_cov_chrX
+        #         )
+        #     )
+        #     df[median_field_cov_chrY] = (
+        #         df[(df["chr"] == "chrY")]
+        #         .groupby("gc_bin")[cov_target]
+        #         .transform(
+        #             median_by_interval, cov_target=cov_target, median=median_cov_chrY
+        #         )
+        #     )   
 
+        #     #print(df.groupby("gc_bin").size().to_dict())
+        #     gc_bin_dict = df.groupby("gc_bin").size().to_dict()
 
-            # Apply rolling median
-            normalized_field = f"{sample.name}_normalized_{field}"
-            df[normalized_field] = df.apply(
-                apply_normalization,
-                cov_target=cov_target,
-                stats_dict=stats_dict,
-                field=field,
-                gc_bin_dict=gc_bin_dict,
-                axis=1,
-            )
-            if idx == len(fields):
-                normalized_final = f"{sample.name}_normalized_final"
-                df[normalized_final] = df[normalized_field]
+        #     # Apply rolling median
+        #     normalized_field = f"{sample.name}_normalized_{field}"
+        #     df[normalized_field] = df.apply(
+        #         apply_normalization,
+        #         cov_target=cov_target,
+        #         stats_dict=stats_dict,
+        #         field=field,
+        #         gc_bin_dict=gc_bin_dict,
+        #         axis=1,
+        #     )
+        #     if idx == len(fields):
+        #         normalized_final = f"{sample.name}_normalized_final"
+        #         df[normalized_final] = df[normalized_field]
+
+    # df = svd_noise_reduction(df)
+  
+    
     return df
 
 
@@ -354,28 +360,26 @@ def apply_normalization(row, cov_target, stats_dict, field, gc_bin_dict):
     else:
         gc_bin_size = gc_bin_dict[gc_bin]
 
-    print(gc_bin, "bin_size", gc_bin_size)
-
     norm_cov = row[cov_target]
 
     if row["chr"] == "chrX":
         if gc_bin_size > 10:
             norm_cov = round(
                 (row[cov_target] * stats_dict["median_cov_chrX"]) / row[median_field_chrX],
-                2,
+                6,
             )
     elif row["chr"] == "chrY":
         if gc_bin_size > 10:
             norm_cov = round(
                 (row[cov_target] * stats_dict["median_cov_chrY"]) / row[median_field_chrY],
-                2,
+                6,
             )
     else:
         if gc_bin_size > 10:
             norm_cov = round(
                 (row[cov_target] * stats_dict["median_cov_autosomes"])
                 / row[median_field_autosomes],
-                2,
+                6,
             )
 
     return norm_cov

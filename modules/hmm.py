@@ -1,12 +1,13 @@
 import os
 import sys
+import re
 from hmmlearn import hmm, base
 import numpy as np
-from scipy.stats import nbinom, poisson, norm
 import string
 import pandas as pd
 from collections import defaultdict
-
+from scipy.spatial import distance
+from scipy.stats import nbinom, poisson, norm
 
 def calculate_positional_mean_variance(sample_list, analysis_dict):
     """ """
@@ -36,6 +37,7 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
             df_dict[region]["end"],
             df_dict[region]["exon"],
         )
+
         if not chromosome in observations_dict:
             observations_dict[chromosome] = []
         region_dict = defaultdict(dict)
@@ -49,15 +51,14 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
             for control in sample_baselines[sample]:
                 background_depth.append(df_dict[region][control])
 
-            background_mean = round(np.median(background_depth), 3)
-            background_std = round(np.std(background_depth), 3)
+            background_mean = round(np.median(background_depth), 6)
+            background_std = round(np.std(background_depth), 6)
 
             region_dict[sample]["bg_mean"] = background_mean
             region_dict[sample]["bg_std"] = background_std
             region_dict[sample]["normalized_depth"] = sample_depth
             region_dict[sample]["coordinate"] = coord
         observations_dict[chromosome].append(region_dict)
-    # sys.exit()
     return observations_dict
 
 def convert_params(mu, alpha):
@@ -114,19 +115,43 @@ class CustomHMM:
     def observations(self):
         """ """
         obs = []
-        for region in self._obs_dict[self._chr]:
+        for region in self._obs_dict[self._chr]:          
             x = region[self._sample]["normalized_depth"]
             obs.append(x)
         return obs
+
+    @property
+    def list_of_rois(self):
+        """ """
+        regions = []
+        for region in self._obs_dict[self._chr]:
+           regions.append(region)
+        return regions
 
     def compute_log_likelihood(self):
         """ """
         logp_dict = defaultdict(dict)
         emissions = []
+        emissions_probs = []
         idx = 0
-        epsilon = 1e-8  # a small constant
+        epsilon = 1e-8
+
+        mean_bg_std_list = []
+        for chr in self._obs_dict:
+            for region in self._obs_dict[chr]:
+                # print(region[self._sample]['coordinate'])
+                sample_depth = region[self._sample]["normalized_depth"]
+                bg_depth = region[self._sample]["bg_mean"]
+                bg_std = region[self._sample]["bg_std"]
+                mean_bg_std_list.append(bg_std)
+        
+        mean_bg_std = np.mean(mean_bg_std_list)
 
         for region in self._obs_dict[self._chr]:
+            tmp = re.split(':|-|_', region[self._sample]['coordinate'])
+            pos = tmp[1]
+            end = tmp[2]
+
             sample_depth = region[self._sample]["normalized_depth"]
             bg_depth = region[self._sample]["bg_mean"]
             bg_std = region[self._sample]["bg_std"]
@@ -138,7 +163,6 @@ class CustomHMM:
             state_list = []
             depth_list = []
             probs_list = []
-            epsilon = 1e-8  # a small constant
             for state in range(self._n_components):
 
                 if state == 0:
@@ -146,17 +170,15 @@ class CustomHMM:
 
                 ratio = state / 2
                 x = sample_depth
-
-                # x = sample_depth*ratio
                 mean_state = bg_depth * ratio
+                combined_error_estimate = np.sqrt(bg_std**2 + mean_bg_std**2)
 
-                std_state = bg_std
                 if x == 0:
                     x = 1
                 logp_dict[idx][state] = round(
-                    np.log(norm.pdf(x, loc=mean_state, scale=bg_std)+epsilon), 6
+                    np.log(norm.pdf(x, loc=mean_state, scale=combined_error_estimate)+epsilon), 6
                 )
-                probs_list.append(norm.pdf(x, loc=bg_depth, scale=bg_std))
+                probs_list.append(norm.pdf(x, loc=bg_depth, scale=bg_std+mean_bg_std))
 
                 state_list.append(logp_dict[idx][state])
                 depth_list.append(str(state) + ":" + str(x))
@@ -175,7 +197,6 @@ class CustomHMM:
         alpha = np.zeros((T, M))
 
         # Initialization
-
         alpha[0, :] = self._start_prob * np.array(self._emissions[0])
 
         for t in range(1, T):
@@ -209,12 +230,10 @@ class CustomHMM:
         alpha = self.forward()
         beta = self.backward()
 
-
         posterior_probs = np.multiply(alpha, beta) / np.sum(np.multiply(alpha, beta), axis=1)[:, np.newaxis]
 
         # print(self._emissions[0])
         # print(posterior_probs[0])
-
         sys.exit()
 
         return posterior_probs
@@ -229,14 +248,14 @@ class CustomHMM:
         B: Emission matrix
         """
 
-        start_p = np.array([0.20, 0.20, 0.20, 0.20, 0.20])
+        start_p = np.array([0.25, 0.25, 0.25, 0.25, 0.25])
         O = np.array(self.observations)
         S = np.array([0, 1, 2, 3, 4])
         A = np.array(
             [
                 [0.5, 0, 0.5, 0, 0],
                 [0, 0.5, 0.5, 0, 0],
-                [0.01, 0.01, 0.96, 0.01, 0.01],
+                [0.005, 0.02, 0.95, 0.02, 0.005],
                 [0, 0, 0.5, 0.5, 0],
                 [0, 0, 0.5, 0, 0.5],
             ]
@@ -252,9 +271,11 @@ class CustomHMM:
 
         prev = np.zeros((T - 1, M))
         phred_scores = np.zeros((T, M))
-        #phred_scores = []
         for t in range(1, T):
+
             list_phreds = []
+
+            list_probabilites = []
 
             for j in range(M):
                 probability = omega[t - 1] + np.log(A[:, j] + epsilon) + B[t, j]
@@ -263,7 +284,6 @@ class CustomHMM:
                 # Subtract max log probability for numerical stability, exponentiate and normalize
                 probs = np.exp(probability - max_log_prob)
                 probs /= np.sum(probs)
-
                 # Calculate error probabilities
                 error_probs = 1 - probs
 
@@ -286,6 +306,7 @@ class CustomHMM:
                 # assign a 0 state
                 if np.isinf(omega[t, j]):
                     omega[t, j] = -10000000
+            # print(self.list_of_rois[t]['coordinate'], phred_scores[t] )
 
         # print(omega)
 
