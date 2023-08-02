@@ -4,7 +4,18 @@ import random
 # import edlib
 from Bio import Align
 from Bio.Seq import Seq
-from align import Aligner
+from modules.align import Aligner
+from modules.affine.align import semiglobal_alignment, local_alignment
+
+
+aligner = Align.PairwiseAligner()
+aligner.mode = 'global'
+aligner.match_score = 2
+aligner.mismatch_score = -5
+aligner.open_gap_score = -20
+aligner.extend_gap_score = -1
+aligner.target_end_gap_score = 0.0
+aligner.query_end_gap_score = 0.0
 
 class Contig():
 
@@ -19,14 +30,6 @@ class OverlapAssembler():
         self.k = k
 
     def get_max_overlaps(self, reads):
-        aligner = Align.PairwiseAligner()
-        aligner.mode = 'global'
-        aligner.match_score = 2
-        aligner.mismatch_score = -5
-        aligner.open_gap_score = -20
-        aligner.extend_gap_score = -1
-        aligner.target_end_gap_score = 0.0
-        aligner.query_end_gap_score = 0.0
 
         for read1 in reads:
             max_overlap = 0
@@ -35,12 +38,29 @@ class OverlapAssembler():
             for read2 in reads:
                 if read1 == read2:
                     continue
+               
+                # if not read1 and not read2:
+                #   continue
+                # alignment = semiglobal_alignment(read1, read2) # New alignment function
+                # if alignment["r_pos"] == 0 and alignment["q_end"] == len(read2):
+                #     subseq1 = read2
+                #     subseq2 = read1[alignment["r_end"]:]
+                #     overlap = alignment["r_end"]
+                # elif alignment["r_end"] == len(read1) and alignment["q_pos"] == 0:
+                #     subseq2 = read2
+                #     subseq1 = read1[0:alignment["r_pos"]]
+                #     overlap = alignment["q_end"]
+                # else:
+                #     continue
+                # if overlap > max_overlap and overlap > 20:
+                #     max_overlap = overlap
+                #     max_read = read2
+                #     contig = subseq1+subseq2
 
                 alignments = aligner.align(read1, read2)
                 optimal_aln = alignments[0]
                 seg1 = optimal_aln.aligned[0]
                 seg2 = optimal_aln.aligned[1]
-                # print(optimal_aln)
                 if len(seg1) == 1 and len(seg2) == 1:
                     # print(optimal_aln, seg1,seg1[0], seg2, seg2[0])
                     if seg1[0][0] == 0 and seg2[0][1] == len(read2):
@@ -158,8 +178,6 @@ class DeBruijnAssembler():
       for subnode in self.g[node]:
         if node.nin < start.nin:
           start = node
-    print(start.km1mer, start.nin, start.nout)
-
     current = start
     contig = current.km1mer[:-1]
 

@@ -11,21 +11,20 @@ from modules.plot import plot_normalization, CnvPlot, plot_gene
 from modules.cluster import launch_sample_clustering
 from modules.ratio import calculate_coverage_ratios
 from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
+from modules.breakpoint import call_structural_variants
+# from modules.breakpoint import call_structural_variants, export_sv_calls
+# from modules.blat import Blat
+
 from modules.call import (
     call_cnvs,
     call_raw_cnvs,
     filter_single_exon_cnv,
     unify_raw_calls,
-    export_all_calls,
+    export_cnv_calls,
 )
-from modules.hmm import calculate_positional_mean_variance, CustomHMM
-from modules.single_exon import evaluate_single_exon_cnvs
-import numpy as np
-import pandas as pd
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(main_dir, "/modules"))
-
 
 def main(args):
 
@@ -47,6 +46,21 @@ def main(args):
     # I/O Initialization
     sample_list, analysis_dict, ngs_utils_dict, ann_dict = initialize(args)
 
+
+    # for sample in sample_list:
+    #     # if sample.name != "sample3.simulated":
+    #     #     continue
+    #     msg = f" INFO: Calling breakpoint on sample {sample.name}"
+    #     logging.info(msg)
+
+    #     call_structural_variants(sample.bam, args.bed, args.reference, args.output_dir, 
+    #         sample.name, ngs_utils_dict, ann_dict)
+
+        # sv_calls = call_structural_variants(sample.bam, args.bed, ann_dict["blacklist"], args.reference)
+        # export_sv_calls(sample, args.output_dir, sv_calls)
+
+    # sys.exit()
+
     # Depth, gc, mappability extraction formatting
     sample_list, analysis_dict = launch_read_depth(
         sample_list, analysis_dict, ngs_utils_dict, ann_dict
@@ -65,27 +79,20 @@ def main(args):
     # calculate ratios
     sample_list, analysis_dict = calculate_coverage_ratios(sample_list, analysis_dict)
 
-    # genes = analysis_dict['list_genes_to_plot']
-    # for gene in genes:
-    #     for sample in sample_list:
-    #         plot_gene(sample.name, sample_list, gene, analysis_dict)
-    # obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
-
     sample_list = custom_hmm_seg(sample_list, analysis_dict)
+
     sample_list = call_raw_cnvs(
         sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
     )
     
-
     filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
         args.lower_dup_cutoff, analysis_dict
     )
 
     sample_list = unify_raw_calls(sample_list)
-    # evaluate_single_exon_cnvs(sample_list, analysis_dict)
 
     sample_list = call_cnvs(sample_list, -0.621, 0.433, 2.58)
-    sample_list = export_all_calls(sample_list, analysis_dict)
+    sample_list = export_cnv_calls(sample_list, analysis_dict)
 
     for sample in sample_list:
         cnp = CnvPlot(
@@ -147,6 +154,13 @@ def parse_arguments():
         help="Genome reference in FASTA format",
         dest="reference",
     )
+    parser.add_argument(
+        "--breakpoint", 
+        default=False, 
+        help="Perform breakpoint (SV) analysis",
+        dest="breakpoint"
+    )
+
     parser.add_argument(
         "--upper_del_cutoff",
         type=float,

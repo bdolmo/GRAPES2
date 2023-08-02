@@ -2,11 +2,11 @@ import os
 import sys
 # import edlib
 # from Bio import Align
-from align import Aligner
+from modules.align import Aligner
 from Bio.Seq import Seq
 import re
 import pysam
-from affine.align import semiglobal_alignment, local_alignment
+from modules.affine.align import semiglobal_alignment, local_alignment
 
 
 class Seed:
@@ -66,12 +66,13 @@ class Blat:
 
         extended_seeds = []
         seeds = self.merge_overlapping_seeds(seeds)
-
+        print("overlapped_seeds", seeds)
+        
         for i in range(0, len(seeds)-1):
 
             curr_seed = seeds[i]
             next_seed = seeds[i+1]
-
+            # print("seeds", curr_seed, next_seed)
             left_seed = Seed()
             right_seed = Seed()
 
@@ -98,7 +99,6 @@ class Blat:
                     right_seed.r_end = aln["r_end"]
                     right_seed.strand = "+"
                     right_seed.seq = seq[right_seed.q_pos:right_seed.q_end+1]
-                    # print("extend_plus:", aln['pretty_aln'], right_seed, sep="\n")
 
                 elif curr_seed.strand == "+" and next_seed.strand == "-":
                     query_seq = seq[curr_seed.q_pos:next_seed.q_end+1]
@@ -162,14 +162,17 @@ class Blat:
                     left_seed.strand = "-"
 
                     # Extend (-) seed
+                    query_seq = seq[curr_seed.q_end:next_seed.q_end+1]
                     aln = local_alignment(self._ref_rev, query_seq)
+
                     right_seed.cigar = aln["cigar"]
                     right_seed.q_pos = aln["q_pos"] + curr_seed.q_pos
                     right_seed.q_end = aln["q_end"] + curr_seed.q_pos
                     right_seed.r_pos = len(self._ref_rev)-aln["r_end"]
                     right_seed.r_end = len(self._ref_rev)-aln["r_pos"]
-                    right_seed.seq = seq[right_seed.q_pos:right_seed.q_pos+1]
+                    right_seed.seq = seq[right_seed.q_pos:right_seed.q_end+1]
                     right_seed.strand = "-"
+
             else:
                 left_seed = curr_seed
                 right_seed = next_seed
@@ -179,7 +182,6 @@ class Blat:
                 extended_seeds.append(right_seed)
 
         extended_seeds = self.merge_overlapping_seeds(extended_seeds)
-
         return extended_seeds
 
     def merge_overlapping_seeds(self, seeds):
@@ -265,7 +267,7 @@ class Blat:
         return complement_dict[ntd]
 
     @staticmethod
-    def cigar_to_variant(seed):
+    def cigar_to_variant(seed, chr, start):
         """Given a list of cigar operations extract a variant"""
         cigar_op_list = re.findall(r'\d+[MIDNSHP=X]', seed.cigar)
         var_list = []
@@ -289,9 +291,11 @@ class Blat:
             var_dict = {
                 "type": vartype,
                 "size": tmp[0],
-                "pos": cumulative_pos+seed.r_pos,
-                "end": end,
-                "seq": seq
+                "chr": chr,
+                "pos": cumulative_pos+seed.r_pos+start,
+                "end": end+start,
+                "alt": ".",
+                "contig": seq
             }
             cumulative_pos+=int(tmp[0])
             var_list.append(var_dict)
@@ -302,18 +306,16 @@ class Blat:
         var_list = []
         for seq in seqs:
             seeds = self.seed(seq)
-            print("seq", seq)
             seeds = self.extension(seq, seeds)
-
             if len(seeds) == 1:
-                var_list = self.cigar_to_variant(seeds[0])
+                var_list = self.cigar_to_variant(seeds[0], self._chr, self._start)
                     
             for i in range(0, len(seeds)-1):
                 curr_seed = seeds[i]
                 next_seed = seeds[i+1]
 
-                vars1 = self.cigar_to_variant(curr_seed)
-                vars2 = self.cigar_to_variant(next_seed)
+                vars1 = self.cigar_to_variant(curr_seed, self._chr, self._start)
+                vars2 = self.cigar_to_variant(next_seed, self._chr, self._start)
                 var_dict = {}
 
                 if vars1 and vars1 not in var_list:
@@ -329,7 +331,8 @@ class Blat:
                         "chr": self._chr,
                         "pos": curr_seed.r_end+1+self._start,
                         "end": next_seed.r_pos+self._start,
-                        "alt": self._ref[curr_seed.r_end+1:next_seed.r_pos]
+                        "alt": self._ref[curr_seed.r_end+1:next_seed.r_pos],
+                        "contig": seq
                     }
                 else:
                     if next_seed.strand != curr_seed.strand:
@@ -337,30 +340,33 @@ class Blat:
                         if next_seed.strand == "-":
                             inv_seed = next_seed
 
-                        inversion_size = inv_seed.r_end - inv_seed.r_pos
-                        var_dict =  {
-                            "type": "inversion",
-                            "size" : (inv_seed.r_end+self._start)-(inv_seed.r_pos+self._start),
-                            "chr": self._chr,
-                            "pos": inv_seed.r_pos+self._start,
-                            "end": inv_seed.r_end+self._start,
-                            "alt": self._ref[inv_seed.r_pos:inv_seed.r_end]
-                        }
+                        # inversion_size = inv_seed.r_end - inv_seed.r_pos
+                        # var_dict =  {
+                        #     "type": "inversion",
+                        #     "size" : (inv_seed.r_end+self._start)-(inv_seed.r_pos+self._start),
+                        #     "chr": self._chr,
+                        #     "pos": inv_seed.r_pos+self._start,
+                        #     "end": inv_seed.r_end+self._start,
+                        #     "alt": self._ref[inv_seed.r_pos:inv_seed.r_end],
+                        #     "contig": seq
+                        # }
                     else:
-                        var_dict = {
-                            "type": "duplication",
-                            "size": curr_seed.r_pos-next_seed.r_end,
-                            "chr": self._chr,
-                            "pos": next_seed.r_end+self._start,
-                            "end": curr_seed.r_pos+self._start,
-                            "alt": self._ref[next_seed.r_pos-1:curr_seed.r_end+1]                             
-                        }
-                        print(var_dict)
-                        print(next_seed.q_end, curr_seed.q_pos)
-
-
-                if var_dict and var_dict not in var_list:
-                    var_list.append(var_dict)
+                        pass
+                        # var_dict = {
+                        #     "type": "duplication",
+                        #     "size": curr_seed.r_pos-next_seed.r_end,
+                        #     "chr": self._chr,
+                        #     "pos": next_seed.r_end+self._start,
+                        #     "end": curr_seed.r_pos+self._start,
+                        #     "alt": self._ref[next_seed.r_pos-1:curr_seed.r_end+1],
+                        #     "contig": seq
+                        # }
+                        # print(var_dict)
+                        # print(next_seed.q_end, curr_seed.q_pos)
+                
+                if len(curr_seed.seq) >= 20 and len(next_seed.seq) >= 20:               
+                    if var_dict and var_dict not in var_list:
+                        var_list.append(var_dict)
 
         return var_list
 
@@ -441,7 +447,7 @@ class Blat:
                     next_seed.cigar = f"{str(len(next_seed.seq))}M"
 
         seeds = sorted(seeds, key=lambda x: x.q_pos, reverse=False)
-        print(seeds)
+        # print(seeds)
         return seeds
   
 
@@ -460,11 +466,14 @@ if __name__ == "__main__":
     print("query_seq:", query_seq)
     fasta = "/home/bdelolmo/REF_DIR/hg19/ucsc.hg19.fasta"
     ref = pysam.FastaFile(fasta)
-    reference = ref.fetch('chr2', 179431346, 179437577)
+
+    # reference = ref.fetch('chr2', 179431346, 179437577)
 
     reference = "ttagggagaaaccagattagacgtgacgggatttacgAAAAAAATCTCTCTCTAACGATGCTAAACGCGCTAGCTAGCTGTAGCGAC"
     query_seq = "ttagggagaaaccagattagacgtgacgggatttacgAAAAAAATCTCTCTCTAattagacgtgacgggatttacgAAAAAAATCTCTCTCTAACGATGCTAAACGCGCTAGCTAGCTGTAGCGAC"
 
+
+    query_seq = "GGAGAAGATAGAAATTGCAAATTTAATTCAGGAAAATGCAGTCATCTTATACTTACTGAAGCTACACTAACACTTCCACTCCTAGAAATAGACAAATGGGTCCATACATGTTACTCATCATGTATTTAAT"
 
 
     blat = Blat(k=21, ref=reference, chr="chr2", start=179431346, end=179437577)

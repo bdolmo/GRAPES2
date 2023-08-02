@@ -15,7 +15,7 @@ def load_ngs_utils_config():
     ngs_utils_dict = {
         "megadepth": os.path.join(bin_dir, "megadepth"),
         "mosdepth": os.path.join(bin_dir, "mosdepth"),
-        "grapes_sv": os.path.join(bin_dir, "grapes_sv", "GRAPES"),
+        "grapes_sv": os.path.join(bin_dir, "GRAPES"),
         "targetdepth": os.path.join(bin_dir, "TargetDepth", "targetDepth.pl"),
     }
     for soft in ngs_utils_dict:
@@ -29,13 +29,16 @@ def load_annotation_config():
     ann_dict = {
         "mappability": os.path.join(
             ann_dir, "mappability", "wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz"
+        ),
+        "blacklist": os.path.join(
+            ann_dir, "blacklist", "consensusBlacklist.hg19.bed"
         )
     }
     for item in ann_dict:
         if not os.path.isfile(ann_dict[item]):
             raise FileNotFoundError(ann_dict[item])
         else:
-            msg = (" INFO: Found annotation {}").format(item)
+            msg = f" INFO: Found annotation {item}"
             logging.info(msg)
     return ann_dict
 

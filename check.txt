@@ -1,8 +1,0 @@
- INFO: Found executable for megadepth
- INFO: Found executable for mosdepth
- INFO: Found executable for GRAPES
- INFO: Found executable for targetDepth.pl
- INFO: Found annotation mappability
- INFO: Extracting mappability
- INFO: Skipping mappability extraction
- INFO: Normalizing exon level coverage by gc

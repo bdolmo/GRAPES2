@@ -19,7 +19,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def export_all_calls(sample_list, analysis_dict):
+def export_cnv_calls(sample_list, analysis_dict):
     """
     Join CNV calls and export a single file
     """
@@ -33,16 +33,31 @@ def export_all_calls(sample_list, analysis_dict):
         if sample.analyzable == "False":
             continue
 
+        tags = ['SVTYPE', 'REGION', 'NREGIONS', 'LOG2RATIO', 'CN', 'SCORE']
+
         original = sample.cnv_calls_bed
-        target_name = f'{sample.name}.GRAPES2.bed'
-        target = os.path.join(analysis_dict["output_dir"], target_name)
+        target_name = f'{sample.name}.GRAPES2.cnv.bed'
+        target = os.path.join(analysis_dict["output_dir"], sample.name, target_name)
         g = open(target, "w")
         with open(sample.cnv_calls_bed) as f:
             for line in f:
                 line = line.rstrip("\n")
                 if line.startswith("chr\tstart"):
                     continue
-                g.write(line+"\n")
+                tmp = line.split("\t")
+                info = {
+                    "SVTYPE": tmp[9],
+                    "REGION": tmp[3],
+                    "NREGIONS": tmp[4],
+                    "LOG2RATIO": tmp[5],
+                    "CN": tmp[6],
+                    "SCORE": tmp[7]
+                }
+                info_str = "IMPRECISE;" + ";".join(f"{k}={v}" for k, v in info.items())
+                coordinates = f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}"
+
+
+                g.write(coordinates +"\t" + info_str +"\n")
         f.close()
         g.close()
 
@@ -293,20 +308,27 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
                 end = tmp[2]
                 regions = tmp[3]
                 n_regions = tmp[4]
-                log2_ratio = tmp[5]
+                log2_ratio = float(tmp[5])
                 cn = int(tmp[6])
                 phred_score = float(tmp[7])
 
+                zscore = (log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio
+
                 if phred_score < 15:
                     continue
-                    
+                
+                if log2_ratio <= upper_del_threshold or log2_ratio >= dup_threshold:
+                    pass
+                else:
+                    continue
+
                 cnvtype = ""
                 if cn != 2:
                     if cn > 2:
-                        if float(log2_ratio) >= dup_threshold:
+                        if log2_ratio >= dup_threshold and abs(zscore) > 2.5:
                             cnvtype = "DUP"
                     else:
-                        if float(log2_ratio) <= upper_del_threshold:
+                        if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
                             cnvtype = "DEL"
                     if cnvtype != "":
                         outline = f"{line}\t1\t{cnvtype}\n"
@@ -324,50 +346,50 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
         o.close()
         p.close()
 
-        # with open(sample.ratio_file) as f:
-        #     for line in f:
-        #         line = line.rstrip("\n")
-        #         if line.startswith("chr\tstart"):
-        #             continue
-        #         tmp = line.split("\t")
-        #         chr = tmp[0]
-        #         start = tmp[1]
-        #         end = tmp[2]
-        #         region = tmp[3]
-        #         # phred_score = float(tmp[7])
-        #         # if phred_score < 20:
-        #         #     continue
+        with open(sample.ratio_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if line.startswith("chr\tstart"):
+                    continue
+                tmp = line.split("\t")
+                chr = tmp[0]
+                start = tmp[1]
+                end = tmp[2]
+                region = tmp[3]
+                # phred_score = float(tmp[7])
+                # if phred_score < 20:
+                #     continue
 
-        #         coordinate = f"{chr}\t{start}\t{end}"
-        #         if coordinate in seen_roi_dict:
-        #             continue
+                coordinate = f"{chr}\t{start}\t{end}"
+                if coordinate in seen_roi_dict:
+                    continue
 
-        #         #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
-        #         log2_ratio = float(tmp[-1])
-        #         fold_change = 2 ** (log2_ratio)
+                #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
+                log2_ratio = float(tmp[-1])
+                fold_change = 2 ** (log2_ratio)
 
-        #         zscore = (log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio
+                zscore = (log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio
 
-        #         cn = str(int( (fold_change * 2)+.5))
-        #         tmp_list = [chr, start, end, region, "1", str(log2_ratio), "1", "60"]
-        #         # if log2_ratio <= upper_del_threshold:
-        #         #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
+                cn = str(int( (fold_change * 2)+.5))
+                tmp_list = [chr, start, end, region, "1", str(log2_ratio), "1", "60"]
+                # if log2_ratio <= upper_del_threshold:
+                #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
                  
-        #         # if log2_ratio >= dup_threshold:
-        #         #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
+                # if log2_ratio >= dup_threshold:
+                #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
 
-        #         if log2_ratio <= upper_del_threshold and abs(zscore) > 1.5:
-        #             cnvtype = "DEL"
-        #             tmp_list.append(cn)
-        #             tmp_list.append(cnvtype)
-        #             q.write("\t".join(tmp_list) + "\n")
-        #         if log2_ratio >= dup_threshold and abs(zscore) > 1.5:
-        #             cnvtype = "DUP"
-        #             tmp_list.append(cn)
-        #             tmp_list.append(cnvtype)
-        #             q.write("\t".join(tmp_list) + "\n")
-        # f.close()
-        # q.close()
+                if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
+                    cnvtype = "DEL"
+                    tmp_list.append(cn)
+                    tmp_list.append(cnvtype)
+                    q.write("\t".join(tmp_list) + "\n")
+                if log2_ratio >= dup_threshold and abs(zscore) > 2.5:
+                    cnvtype = "DUP"
+                    tmp_list.append(cn)
+                    tmp_list.append(cnvtype)
+                    q.write("\t".join(tmp_list) + "\n")
+        f.close()
+        q.close()
         # sys.exit()
     return sample_list
 

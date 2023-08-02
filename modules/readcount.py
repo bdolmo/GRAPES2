@@ -165,7 +165,7 @@ def extract_read_depth_exome(sample_list, analysis_dict, ngs_utils_dict, ann_dic
         )
 
         if not os.path.isfile(sample_per_base_file):
-            msg = (" INFO: Extracting coverage from sample {}").format(sample.name)
+            msg = f" INFO: Extracting coverage from sample {sample.name}"
             logging.info(msg)
             p1 = subprocess.run(
                 cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE

@@ -259,8 +259,9 @@ class CnvPlot:
         sample_ratio = self._sample + "_ratio"
         min_ratio = cnr_df[sample_ratio].min()
         min_limit = -1
-        if min_ratio < min_limit:
-            min_limit = min_ratio - 0.2
+        if min_ratio < -3:
+            min_limit = -3.5
+
 
         # Setting chromosome color
         palette_dict = defaultdict(dict)

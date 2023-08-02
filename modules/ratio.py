@@ -46,7 +46,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
         ratio_file = str(Path(sample.sample_folder) / ratio_file_name)
         sample.add("ratio_file", ratio_file)
         # if not os.path.isfile(ratio_file):
-        if os.path.isfile(ratio_file) or not os.path.isfile(ratio_file):
+        if not os.path.isfile(ratio_file):
             #normalized_depth_tag = f"{sample.name}_normalized_final"
             normalized_depth_tag = f"{sample.name}_normalized_final"
 
@@ -123,4 +123,7 @@ def do_ratio_ref(row, baseline, sample, log2=True):
         ratio = 0.01
 
     log2_ratio = round(math.log2(ratio), 3)
+    if log2_ratio < -3:
+        log2_ratio = -3
+
     return log2_ratio

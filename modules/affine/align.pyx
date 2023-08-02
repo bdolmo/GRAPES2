@@ -118,6 +118,7 @@ def semiglobal_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, misma
                 X[i, j] = float('-inf')
                 Y[i, j] = float('-inf')
                 is_terminated = True
+
             # else:
             max_value = max(M[i][j], X[i][j], Y[i][j])
 
@@ -139,7 +140,6 @@ def semiglobal_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, misma
     while i > 0 or j > 0:
         # Check which matrix the current value came from
         current_matrix = None
-        current_value = M[i][j]
 
         max_value = max(M[i, j], X[i, j], Y[i, j])
 
@@ -193,10 +193,20 @@ def semiglobal_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, misma
     seq2_align = seq2_align[::-1]
     spacer = spacer[::-1]
     cigar_str = cigar_str[::-1]
-    # print(cigar_str)
-    # print(seq1_align)
-    # print(spacer)
-    # print(seq2_align)
+
+    if not cigar_str:
+        alignment = {
+            "q_pos": 0,
+            "q_end": 0,
+            "q_span": 0,
+            "r_pos": 0,
+            "r_end": 0,
+            "score": 0,
+            "cigar": "0M",
+            "pretty_aln": "."
+        }
+        return alignment
+
 
     cigar = compact_cigar_string(cigar_str)
     cigar_operations = re.findall(r'\d+[MIDNSHP=X]', cigar)
@@ -241,7 +251,7 @@ def semiglobal_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, misma
 
     return alignment
 
-def local_alignment(seq1, seq2, gap_open=-25, gap_extend=-1, match=2, mismatch=-4, band_width=50) -> dict:
+def local_alignment(seq1, seq2, gap_open=-10, gap_extend=-1, match=2, mismatch=-4, band_width=50) -> dict:
     """
         Local alignment with affine gap penalties
     """
@@ -315,9 +325,27 @@ def local_alignment(seq1, seq2, gap_open=-25, gap_extend=-1, match=2, mismatch=-
 
     i = max_i 
     j = max_j
+    # print(i, j)
+
+
+    if i == 0 and j == 0:
+        alignment = {
+            "q_pos": 0,
+            "q_end": 0,
+            "q_span": 0,
+            "r_pos": 0,
+            "r_end": 0,
+            "score": 0,
+            "cigar": "0M",
+            "pretty_aln": "."
+        }
+        return alignment
+
 
     # Traceback. Returning the single best optimal alignment
-    while (i > 0 or j > 0) and (M[i][j] > 0 or X[i][j] > 0 or Y[i][j] > 0):
+    #while (i > 0 or j > 0) and (M[i][j] > 0 or X[i][j] > 0 or Y[i][j] > 0):
+    while (i > 0 and i < m + 1 and j > 0 and j < n + 1) and (M[i][j] > 0 or X[i][j] > 0 or Y[i][j] > 0):
+
         # Check which matrix the current value came from
         current_matrix = None
         current_value = M[i][j]
@@ -378,9 +406,21 @@ def local_alignment(seq1, seq2, gap_open=-25, gap_extend=-1, match=2, mismatch=-
     # print(seq1_align)
     # print(spacer)
     # print(seq2_align)
+    if not cigar_str:
+        alignment = {
+            "q_pos": 0,
+            "q_end": 0,
+            "q_span": 0,
+            "r_pos": 0,
+            "r_end": 0,
+            "score": 0,
+            "cigar": "0M",
+            "pretty_aln": "."
+        }
+        return alignment
+   
 
     cigar = compact_cigar_string(cigar_str)
-    
     cigar_operations = re.findall(r'\d+[MIDNSHP=X]', cigar)
 
     if isinstance(cigar_operations, list) and len(cigar_operations) > 0 and isinstance(cigar_operations[0], list) and len(cigar_operations[0]) > 0:

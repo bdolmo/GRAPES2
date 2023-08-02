@@ -43,9 +43,11 @@ def custom_hmm_seg(sample_list, analysis_dict):
         logging.info(msg)
 
         for chr in chr_dict:
-
+            # if chr != "chr15":
+            #     continue
             model = CustomHMM(obs_dict, sample.name, chr)
             states, phred_scores = model.decode()
+            posteriors = model.posterior_decoding()
 
             idx = 0
             unmerged_list = []
@@ -59,15 +61,15 @@ def custom_hmm_seg(sample_list, analysis_dict):
                     "end": tmp[2],
                     "region": tmp[3],
                     "gc": tmp[4],
-                    "map": tmp[5],
+                    "map": posteriors[idx],
                     "log2_ratio": tmp[6],
                     "state": str(state),
                     "phred": phred
                 }
                 # print(data_dict)
-                idx += 1
                 unmerged_list.append(data_dict)
-                p.write(item["region"] + "\t" + str(state) + "\t" + str(phred)+ "\n")
+                p.write(item["region"] + "\t" + str(state) + "\t" + str(phred)+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
+                idx += 1
             merged_list = merge_segments(unmerged_list)
             for item in merged_list:
                 out_list = []

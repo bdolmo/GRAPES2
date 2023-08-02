@@ -8,6 +8,7 @@ import pandas as pd
 from collections import defaultdict
 from scipy.spatial import distance
 from scipy.stats import nbinom, poisson, norm
+from scipy.special import logsumexp
 
 def calculate_positional_mean_variance(sample_list, analysis_dict):
     """ """
@@ -101,14 +102,14 @@ class CustomHMM:
             [
                 [0.5, 0, 0.5, 0, 0],
                 [0, 0.5, 0.5, 0, 0],
-                [0.01, 0.01, 0.96, 0.01, 0.01],
+                [0.005, 0.02, 0.95, 0.02, 0.005],
                 [0, 0, 0.5, 0.5, 0],
                 [0, 0, 0.5, 0, 0.5],
             ]
         )
 
         self._emissions = emissions
-        self._start_prob = np.array([0.20, 0.20, 0.20, 0.20, 0.20])
+        self._start_prob = np.array([0.005, 0.02, 0.95, 0.02, 0.005])
         self._emissions = self.compute_log_likelihood()
 
     @property
@@ -137,6 +138,7 @@ class CustomHMM:
         epsilon = 1e-8
 
         mean_bg_std_list = []
+        mean_bg_depth_list = []
         for chr in self._obs_dict:
             for region in self._obs_dict[chr]:
                 # print(region[self._sample]['coordinate'])
@@ -144,7 +146,8 @@ class CustomHMM:
                 bg_depth = region[self._sample]["bg_mean"]
                 bg_std = region[self._sample]["bg_std"]
                 mean_bg_std_list.append(bg_std)
-        
+                mean_bg_depth_list.append(bg_depth)
+        # mean_bg_depth = np.median(mean_bg_depth_list)
         mean_bg_std = np.mean(mean_bg_std_list)
 
         for region in self._obs_dict[self._chr]:
@@ -197,11 +200,11 @@ class CustomHMM:
         alpha = np.zeros((T, M))
 
         # Initialization
-        alpha[0, :] = self._start_prob * np.array(self._emissions[0])
-
+        alpha[0, :] = np.log(self._start_prob) + np.array(self._emissions[0])
+        epsilon = 1e-8
         for t in range(1, T):
             for j in range(M):
-                alpha[t, j] = alpha[t - 1].dot(self._transitions[:, j]) * self._emissions[t][j]
+                alpha[t, j] = logsumexp(alpha[t - 1] + np.log(self._transitions[:, j]+epsilon)) + self._emissions[t][j]
 
         return alpha
 
@@ -213,13 +216,14 @@ class CustomHMM:
         M = self._n_components
 
         beta = np.zeros((T, M))
+        epsilon = 1e-8
 
         # Initialization
-        beta[T - 1] = np.ones((M))
+        beta[T - 1, :] = 0  # in log space, log(1) = 0
 
         for t in range(T - 2, -1, -1):
             for j in range(M):
-                beta[t, j] = (beta[t + 1] * np.array(self._emissions[t + 1]) * self._transitions[j, :]).sum()
+                beta[t, j] = logsumexp(beta[t + 1] + np.log(self._transitions[j, :]+epsilon) + np.array(self._emissions[t + 1]))
 
         return beta
 
@@ -230,11 +234,11 @@ class CustomHMM:
         alpha = self.forward()
         beta = self.backward()
 
-        posterior_probs = np.multiply(alpha, beta) / np.sum(np.multiply(alpha, beta), axis=1)[:, np.newaxis]
+        # Compute posterior probabilities in log space
+        log_posterior_probs = alpha + beta - logsumexp(alpha + beta, axis=1, keepdims=True)
 
-        # print(self._emissions[0])
-        # print(posterior_probs[0])
-        sys.exit()
+        # Convert back to normal space if necessary
+        posterior_probs = np.exp(log_posterior_probs)
 
         return posterior_probs
 
@@ -248,7 +252,7 @@ class CustomHMM:
         B: Emission matrix
         """
 
-        start_p = np.array([0.25, 0.25, 0.25, 0.25, 0.25])
+        start_p = np.array([0.005, 0.02, 0.95, 0.02, 0.005])
         O = np.array(self.observations)
         S = np.array([0, 1, 2, 3, 4])
         A = np.array(

@@ -4,207 +4,87 @@ import pysam
 import re
 import numpy as np
 from statistics import median
-from bed import BedRecord
-from blat import Blat
 from Bio import Align
-from assembler import DeBruijnAssembler, OverlapAssembler
-
-import networkx as nx
+from modules.bed import BedRecord, load_bed_file
 from collections import defaultdict
-from itertools import combinations
+import subprocess
 
+def call_structural_variants(bam, bed, fasta, output_dir, sample_name, ngs_utils_dict, ann_dict):
+    """ """
 
+    min_size = 15
+    max_size = 1000000
+    threads = 1
 
-def get_bam_stats(bam: str, bed: str, N=5000):
-    regions = []
-    with open(bed) as f:
-        for line in f:
-            line = line.rstrip("\n")
-            tmp = line.split("\t")
-            rec = BedRecord(tmp[0], int(tmp[1]), int(tmp[2]))
-            regions.append(rec)
-    f.close()
-
-    insert_sizes = []
-    count = 0
-
-    bam_file = pysam.AlignmentFile(bam, "rb")
-    for region in regions:
-        for read in bam_file.fetch(region.chr, region.start, region.end):
-            insert_sizes.append(abs(read.template_length))
-            if count == N:
-                break
-            count += 1
-    isize_median = median(insert_sizes)
-    isize_mad = median([abs(number - isize_median) for number in insert_sizes])
-    upper_limit = isize_median + (10 * isize_mad)
-
-    bam_stats = {
-        "isize_median": isize_median,
-        "isize_mad": isize_mad,
-        "isize_threshold": upper_limit,
+    command = [ngs_utils_dict["grapes_sv"], 
+            '-b', bam,
+            '-g', fasta,
+            '-n', sample_name,
+            '-o', output_dir,
+            '--wes', "on",
+            '--wgs', "off",
+            '-c', str(5),
+            '-s', str(11),
+            '-r', str(5),
+            '-l', str(10),
+            '-a', str(25),
+            '-m', str(4),
+            '-i', str(min_size),
+            '-j', str(max_size),
+            '--find-small', "on",
+            '--find-large', "on",
+            '-t', str(threads),
+            '-e', ann_dict["blacklist"]]
+    
+    result = subprocess.run(command, capture_output=True, text=True)
+    
+    tmp_files = {
+        "FR": os.path.join(output_dir, f"{sample_name}.FR.bam"),
+        "RF": os.path.join(output_dir, f"{sample_name}.RF.bam"),
+        "FF": os.path.join(output_dir, f"{sample_name}.FF.bam"),
+        "RR": os.path.join(output_dir, f"{sample_name}.RR.bam"),
+        "SR": os.path.join(output_dir, f"{sample_name}.SR.bam"),
+        "info": os.path.join(output_dir, f"{sample_name}.discordantInfo.txt"),
+        "fastq": os.path.join(output_dir, f"{sample_name}.fastq"),
+        "FRcluster": os.path.join(output_dir, f"{sample_name}.FR.clusters.bed"),
+        "RFcluster": os.path.join(output_dir, f"{sample_name}.RF.clusters.bed"),
+        "FFcluster": os.path.join(output_dir, f"{sample_name}.FF.clusters.bed"),
+        "RRcluster": os.path.join(output_dir, f"{sample_name}.RR.clusters.bed"),
     }
-    return bam_stats
 
 
-def insert_size(reads):
-    pos = sorted([read.pos for read in reads])
-    return pos[-1] - pos[0]
+    if result.returncode != 0:
+        print(f" INFO: Error running GRAPES_SV:\n{result.stderr}")
+    else:
+        print(f" INFO: GRAPES_SV ran successfully")
 
+        raw_file_name = f"{sample_name}.tmp.rawcalls.bed"
+        raw_file = os.path.join(output_dir, raw_file_name)
 
-def create_breakreads_graph(breakreads, mean_insert_size, sd_insert_size):
-    G = nx.Graph()
-    max_insert_size = mean_insert_size + 10 * sd_insert_size
+        bed_out = os.path.join(output_dir, f"{sample_name}.GRAPES2.breakpoints.bed")
 
-    for qname, reads in breakreads.items():
-        if len(reads) != 2:
-            continue
+        if not os.path.isfile(bed_out):
+            o = open(bed_out, "w")
+        else:
+            o = open(bed_out, "w")
 
-        G.add_node(qname, reads=reads)
+        seen_coord = {}
+        with open(raw_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                tmp = line.split("\t")
+                coordinates = '\t'.join(tmp[0:2])
+                if not coordinates in seen_coord:
+                    seen_coord[coordinates] = True
+                else:
+                    continue
+                o.write(line+"\n")
+        o.close()
+        f.close()
 
-    for qname, other_qname in combinations(G.nodes, 2):
-        reads = G.nodes[qname]['reads']
-        other_reads = G.nodes[other_qname]['reads']
-
-        if is_overlapping(reads, other_reads, max_insert_size):
-            G.add_edge(qname, other_qname)
-
-    return G
-
-
-def is_overlapping(reads_a, reads_b, max_insert_size):
-    chromosomes_a = {read.reference_id for read in reads_a}
-    chromosomes_b = {read.reference_id for read in reads_b}
-
-    if chromosomes_a != chromosomes_b:
-        return False
-
-    pos_a = sorted([read.pos for read in reads_a])
-    pos_b = sorted([read.pos for read in reads_b])
-
-    if abs(pos_a[0] - pos_b[0]) > max_insert_size or abs(pos_a[1] - pos_b[1]) > max_insert_size:
-        return False
-
-
-    insert_sizes = [insert_size(pair) for pair in combinations(reads_a + reads_b, 2) if pair[0].reference_id == pair[1].reference_id]
-
-    if not insert_sizes:
-        return False
-
-    mean_cluster_insert_size = np.mean(insert_sizes)
-    sd_insert_size = np.std(insert_sizes)
-    within_limit = [size for size in insert_sizes if size <= mean_cluster_insert_size + 3 * sd_insert_size]
-
-    return len(within_limit) == len(insert_sizes)
-
-
-def cluster_breakreads(G):
-    cliques = nx.algorithms.community.k_clique_communities(G, 2)
-    clusters = [G.subgraph(clique) for clique in cliques]
-    return clusters
-
-
-def scan_breakreads(bam: str, bed: str, fasta: str):
-    """ """
-
-    regions = []
-    with open(bed) as f:
-        for line in f:
-            line = line.rstrip("\n")
-            tmp = line.split("\t")
-            rec = BedRecord(tmp[0], int(tmp[1]), int(tmp[2]))
-            regions.append(rec)
-    f.close()
-
-    breakreads = defaultdict(list)
-    bam_file = pysam.AlignmentFile(bam, "rb")
-    for read in bam_file:
-        if not read.cigarstring:
-            continue
-        if not read.is_proper_pair:
-            if re.search(r"^[0-9]+S([0-9]+I)?[0-9]+M$", read.cigarstring):
-                # breakreads.append(read.query_sequence)
-                breakreads[read.qname].append(read)
-
-            if re.search(r"^[0-9]+M([0-9]+I)?[0-9]+S$", read.cigarstring):
-                # breakreads.append(read.query_sequence)
-                breakreads[read.qname].append(read)
-
-    return breakreads
-
-
-    # sys.exit()
-
-    # bam_file = pysam.AlignmentFile(bam, "rb")
-    # for region in regions:
-    #     if not region.start == 179424037:
-    #         continue
-
-    #     breakreads = []
-    #     for read in bam_file.fetch(region.chr, region.start, region.end):
-    #         if not read.cigarstring:
-    #             continue
-    #         if not read.is_proper_pair:
-    #             if re.search(r"^[0-9]+S([0-9]+I)?[0-9]+M$", read.cigarstring):
-    #                 breakreads.append(read.query_sequence)
-    #             if re.search(r"^[0-9]+M([0-9]+I)?[0-9]+S$", read.cigarstring):
-    #                 breakreads.append(read.query_sequence)
-
-    #     oas = OverlapAssembler(breakreads, 21)
-    #     contigs = oas.compute_overlaps()
-    #     ref = pysam.FastaFile(fasta)
-    #     reference = ref.fetch('chr2', 179431346, 179437577)
-    #     seqs = contigs
-    #     # print(seqs)
-    #     # sys.exit()
-
-    #     # for seq in seqs:
-    #     #     print(str(seq))
-
-
-    #     blat = Blat(reference, chr="chr2", start=179431346, end=179437577)
-    #     vars = blat.align(seqs)
-    #     print(vars)
-
-    # pass
-
-
-def call_structural_variants(bam: str, bed: str, fasta: str):
-    """ """
-
-    bam_stats = get_bam_stats(bam, bed)
-
-    breakreads = scan_breakreads(bam, bed, fasta)
-    breakreads_graph = create_breakreads_graph(breakreads, bam_stats['isize_median'], bam_stats['isize_mad'])
-    clusters = cluster_breakreads(breakreads_graph)
-
-    print('Total clusters:', len(clusters))
-    seqs = []
-    for i, cluster in enumerate(clusters, start=1):
-        print(f'Cluster {i}:')
-        for node, data in cluster.nodes(data=True):
-            reads = data['reads']
-            print(f'  {node}:')
-            for read in reads:
-                print(f'    {read.reference_name}:{read.pos}-{read.pos + read.qlen}')
-                seqs.append(read.seq)
-  
-
-    oas = OverlapAssembler(seqs, 21)
-    contigs = oas.compute_overlaps()
-    for s in contigs:
-        print(s)
-    ref = pysam.FastaFile(fasta)
-    reference = ref.fetch('chr2', 179431346, 179437577)
-
-    blat = Blat(k=21, ref=reference, chr="chr2", start=179431346, end=179437577)
-
-    # blat = Blat(reference, chr="chr2", start=179431346, end=179437577)
-    for i in range(0, 1):
-        for seq in contigs:
-            print("aligning", seq)
-            vars = blat.align(seqs=[seq])
-            print(vars)
+    for file_type in tmp_files:
+        if os.path.isfile(tmp_files[file_type]):
+            os.remove(tmp_files[file_type])
 
 
 if __name__ == "__main__":
@@ -212,4 +92,7 @@ if __name__ == "__main__":
     bam = "/home/bdelolmo/RB33925.rmdup.bam"
     bed = "/home/bdelolmo/BED/gendiag_85.CDS.bed"
     fasta = "/home/bdelolmo/REF_DIR/hg19/ucsc.hg19.fasta"
-    call_structural_variants(bam, bed, fasta)
+
+    # blat = Blat(reference, chr="chr2", start=179431346, end=179437577)
+
+    # call_structural_variants(bam, bed, fasta)
