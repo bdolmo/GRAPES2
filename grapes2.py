@@ -12,6 +12,8 @@ from modules.cluster import launch_sample_clustering
 from modules.ratio import calculate_coverage_ratios
 from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
 from modules.breakpoint import call_structural_variants
+from modules.merge_cnv_sv import merge_bed_files
+from modules.offtarget import create_offtarget_bed, create_pseudowindows, extract_offtarget
 # from modules.breakpoint import call_structural_variants, export_sv_calls
 # from modules.blat import Blat
 
@@ -47,19 +49,25 @@ def main(args):
     sample_list, analysis_dict, ngs_utils_dict, ann_dict = initialize(args)
 
 
+    create_offtarget_bed(args.bed, args.output_dir, args.reference, 
+        ann_dict["mappability"], ann_dict["chromosomes"], ann_dict["blacklist"])
+
+
     # for sample in sample_list:
-    #     # if sample.name != "sample3.simulated":
-    #     #     continue
-    #     msg = f" INFO: Calling breakpoint on sample {sample.name}"
-    #     logging.info(msg)
+    #     sample = extract_offtarget(sample, analysis_dict[offtarget_windows_bed, args.reference, ann_dict)
 
-    #     call_structural_variants(sample.bam, args.bed, args.reference, args.output_dir, 
-    #         sample.name, ngs_utils_dict, ann_dict)
 
-        # sv_calls = call_structural_variants(sample.bam, args.bed, ann_dict["blacklist"], args.reference)
-        # export_sv_calls(sample, args.output_dir, sv_calls)
+    sys.exit()
 
-    # sys.exit()
+    if args.breakpoint:
+        for sample in sample_list:
+            # if sample.name != "sample3.simulated":
+            #     continue
+            msg = f" INFO: Calling breakpoints on sample {sample.name}"
+            logging.info(msg)
+
+            call_structural_variants(sample.bam, args.bed, args.reference, args.output_dir, 
+                sample, ngs_utils_dict, ann_dict)
 
     # Depth, gc, mappability extraction formatting
     sample_list, analysis_dict = launch_read_depth(
@@ -106,7 +114,17 @@ def main(args):
         )
         # Plotting genomewide CNV profile
         sample_plot = cnp.plot_genomewide(genomewide=True, by_chr=False)
-    sys.exit()
+
+
+    for sample in sample_list:
+
+        sv_bed = os.path.join(args.output_dir, sample.name, 
+            f"{sample.name}.GRAPES2.breakpoints.bed")
+        cnv_bed = os.path.join(args.output_dir, sample.name, 
+            f"{sample.name}.GRAPES2.cnv.bed")
+        merged_bed = os.path.join(args.output_dir, f"{sample.name}.GRAPES2.bed")
+        merge_bed_files(cnv_bed, sv_bed, merged_bed)
+
 
 
 def parse_arguments():
@@ -156,7 +174,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--breakpoint", 
-        default=False, 
+        action="store_true", 
         help="Perform breakpoint (SV) analysis",
         dest="breakpoint"
     )
@@ -186,8 +204,7 @@ def parse_arguments():
         help="Plot gene log2 ratios by exon",
         dest="plot_gene",
     )
-    # parser_all.add_argument('--breakpoint', default=True,
-    #     help="Perform offtarget breakpoint")
+
 
     args = parser.parse_args()
     return args

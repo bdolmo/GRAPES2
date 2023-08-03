@@ -13,8 +13,8 @@ ann_dir = os.path.join(main_dir, "annotations")
 def load_ngs_utils_config():
     """ """
     ngs_utils_dict = {
-        "megadepth": os.path.join(bin_dir, "megadepth"),
-        "mosdepth": os.path.join(bin_dir, "mosdepth"),
+        # "megadepth": os.path.join(bin_dir, "megadepth"),
+        # "mosdepth": os.path.join(bin_dir, "mosdepth"),
         "grapes_sv": os.path.join(bin_dir, "GRAPES"),
         "targetdepth": os.path.join(bin_dir, "TargetDepth", "targetDepth.pl"),
     }
@@ -32,6 +32,9 @@ def load_annotation_config():
         ),
         "blacklist": os.path.join(
             ann_dir, "blacklist", "consensusBlacklist.hg19.bed"
+        ),
+        "chromosomes": os.path.join(
+            ann_dir, "chromosomes", "hg19.chromosomes.txt"
         )
     }
     for item in ann_dict:

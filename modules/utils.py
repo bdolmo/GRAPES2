@@ -4,6 +4,40 @@ import logging
 import glob
 import subprocess
 import numpy as np
+import pandas as pd
+
+
+def sort_bed_file(input_bed):
+
+
+    output_bed = input_bed.replace(".bed", ".tmp.bed")
+
+    # Load the BED file into a DataFrame
+    df = pd.read_csv(input_bed, sep='\t', names=['chr', 'start', 'end', 'name'], header=None)
+
+    if df.empty:
+        return df
+
+    # Replace 'chrX' and 'chrY' with temporary placeholders
+    df['chr'] = df['chr'].replace({'chrM': 'chr0', 'chrX': 'chr23', 'chrY': 'chr24'})
+
+    # Remove 'chr' prefix for sorting but keep it in a separate column
+    df['chr_num'] = df['chr'].str.replace('chr', '').astype(int)
+
+    # Sort by chromosomal position
+    df = df.sort_values(['chr_num', 'start', 'end'])
+
+    # Drop the temporary column
+    df = df.drop(columns=['chr_num'])
+
+    # Replace temporary placeholders with 'chrX' and 'chrY'
+    df['chr'] = df['chr'].replace({'chr0':'chrM', 'chr23': 'chrX', 'chr24': 'chrY'})
+
+    # Save the sorted DataFrame back to a BED file
+    df.to_csv(output_bed, sep='\t', header=False, index=False)
+
+    os.remove(input_bed)
+    os.rename(output_bed, input_bed)
 
 
 def signal_to_noise(data):

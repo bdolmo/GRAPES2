@@ -9,13 +9,13 @@ from modules.bed import BedRecord, load_bed_file
 from collections import defaultdict
 import subprocess
 
-def call_structural_variants(bam, bed, fasta, output_dir, sample_name, ngs_utils_dict, ann_dict):
+def call_structural_variants(bam, bed, fasta, output_dir, sample, ngs_utils_dict, ann_dict):
     """ """
 
     min_size = 15
     max_size = 1000000
     threads = 1
-
+    sample_name = sample.name
     command = [ngs_utils_dict["grapes_sv"], 
             '-b', bam,
             '-g', fasta,
@@ -50,6 +50,7 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample_name, ngs_utils
         "RFcluster": os.path.join(output_dir, f"{sample_name}.RF.clusters.bed"),
         "FFcluster": os.path.join(output_dir, f"{sample_name}.FF.clusters.bed"),
         "RRcluster": os.path.join(output_dir, f"{sample_name}.RR.clusters.bed"),
+        "tmp_rawcalls": os.path.join(output_dir, f"{sample_name}.tmp.rawcalls.bed"),
     }
 
 
@@ -61,7 +62,7 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample_name, ngs_utils
         raw_file_name = f"{sample_name}.tmp.rawcalls.bed"
         raw_file = os.path.join(output_dir, raw_file_name)
 
-        bed_out = os.path.join(output_dir, f"{sample_name}.GRAPES2.breakpoints.bed")
+        bed_out = os.path.join(output_dir, sample_name, f"{sample_name}.GRAPES2.breakpoints.bed")
 
         if not os.path.isfile(bed_out):
             o = open(bed_out, "w")
