@@ -230,7 +230,6 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 					bwamem.AlignSequence(contigs[i], Qname, results, hardclip, secondary_cutoff, secondary_cap);
 
 					for (auto& i : results) {
-		
 						sam_t sam_read;
 						sam_read.read_name = i.Qname();
 						sam_read.chr       = i.ChrName();

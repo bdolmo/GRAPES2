@@ -43,8 +43,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
         logging.info(msg)
 
         for chr in chr_dict:
-            # if chr != "chr15":
-            #     continue
+
             model = CustomHMM(obs_dict, sample.name, chr)
             states, phred_scores = model.decode()
             posteriors = model.posterior_decoding()
@@ -78,7 +77,6 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 o.write("\t".join(out_list) + "\n")
         o.close()
         p.close()
-        # sys.exit()
 
     return sample_list
 
@@ -87,20 +85,6 @@ def gaussian_hmm(sample_list):
     """
     gaussian with fixed emission hmm segmentation
     """
-    np.random.seed(42)
-    # model = hmm.GaussianHMM(n_components=4, covariance_type="diag")
-
-    # model.startprob_ = np.array([0.01, 0.01, 0.97, 0.01])
-    # model.transmat_ = np.array(
-    #     [
-    #         [0.5, 0.0, 0.5, 0.0],
-    #         [0.0, 0.5, 0.5, 0.0],
-    #         [0.01, 0.01, 0.97, 0.01],
-    #         [0.0, 0.0, 0.5, 0.5],
-    #     ]
-    # )
-    # model.means_ = np.array([[-3], [-1], [0], [0.5]])
-    # model.covars_ = np.array([[0.1]])
 
     for sample in sample_list:
         segment_file_name = ("{}.segment.bed").format(sample.name)
@@ -233,7 +217,6 @@ def merge_segments(unmerged_list):
             "state": first_dict["state"],
             "phred": mean_phred
         }
-        # merged_list.append(first_dict)
         merged_list.append(new_segment)
 
     return merged_list

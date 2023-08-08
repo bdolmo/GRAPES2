@@ -69,11 +69,25 @@ def annotate_gc_bed(input_bed, output_dir, genome_fasta):
         df = pd.read_csv(file, sep="\t", header=None)
         
         df = df.iloc[:, [0,1,2,3,5]]
-        df.iloc[:, -1] *= 100
         df_list.append(df)
 
     master_df = pd.concat(df_list, ignore_index=True)
     master_df.to_csv(output_bed, sep="\t", header=False, index=False)
+    
+    tmp_bed = output_bed.replace(".bed", ".tmp.bed")
+    o = open(tmp_bed, "w")
+    with open(output_bed) as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
+            line = line.rstrip("\t")
+            tmp = line.split("\t")
+            tmp[4] = str(round(float(tmp[4])*100,2))
+            out_str = '\t'.join(tmp)
+            o.write(out_str+"\n")
+    o.close()
+    os.remove(output_bed)
+    os.rename(tmp_bed, output_bed)
 
     # Delete the chunk files to clean up
     for chunk_file in chunk_files:
@@ -82,8 +96,7 @@ def annotate_gc_bed(input_bed, output_dir, genome_fasta):
     for chunk_file in chunks_with_gc_list:
         os.remove(chunk_file)
 
-
-    sys.exit()
+    return output_bed 
 
 
 

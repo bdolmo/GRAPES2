@@ -61,8 +61,6 @@ def export_cnv_calls(sample_list, analysis_dict):
         f.close()
         g.close()
 
-        # shutil.copyfile(original, target)
-        # print(sample.cnv_calls_bed)
         with open(sample.cnv_calls_bed) as f:
             for line in f:
                 line = line.rstrip("\n")
@@ -124,8 +122,8 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
         a = pybedtools.BedTool(sample.raw_single_exon_calls)
         b = pybedtools.BedTool(analysis_dict["normalized_per_base"])
 
-        cmd = f'bedtools intersect -a {sample.raw_single_exon_calls} -b {analysis_dict["normalized_per_base"]}'
-        print(cmd)
+        # cmd = f'bedtools intersect -a {sample.raw_single_exon_calls} -b {analysis_dict["normalized_per_base"]}'
+        # print(cmd)
         c = a.intersect(b, wa=True, wb=True, stream=True)
 
         filtered_single_cnv_name = f"{sample.name}.filtered.single.exon.calls.bed"
@@ -262,7 +260,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
     # sys.exit()
 
 
-def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
+def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold):
     """
     Release a list of raw segmented calls and also single-exon cnvs
     """
@@ -333,12 +331,17 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
                     if cnvtype != "":
                         outline = f"{line}\t1\t{cnvtype}\n"
                         if int(n_regions) > 1:
+                            if analysis_dict["offtarget"] == False and  "pwindow" in regions:
+                                continue
+
                             o.write(outline)
                             p.write(outline)
                         else:
                             coordinate = f"{chr}\t{start}\t{end}"
                             seen_roi_dict[coordinate] = coordinate
                             outline = f"{line}\t1\t{cnvtype}\n"
+                            if analysis_dict["offtarget"] == False and  "pwindow" in regions:
+                                continue
                             q.write(outline)
                             o.write(outline)
                             p.write(outline)
@@ -356,12 +359,11 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
                 start = tmp[1]
                 end = tmp[2]
                 region = tmp[3]
-                # phred_score = float(tmp[7])
-                # if phred_score < 20:
-                #     continue
 
                 coordinate = f"{chr}\t{start}\t{end}"
                 if coordinate in seen_roi_dict:
+                    continue
+                if analysis_dict["offtarget"] and  "pwindow" in region:
                     continue
 
                 #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
@@ -372,11 +374,6 @@ def call_raw_cnvs(sample_list, upper_del_threshold, dup_threshold):
 
                 cn = str(int( (fold_change * 2)+.5))
                 tmp_list = [chr, start, end, region, "1", str(log2_ratio), "1", "60"]
-                # if log2_ratio <= upper_del_threshold:
-                #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
-                 
-                # if log2_ratio >= dup_threshold:
-                #     print(sample.name, chr, start, end, region, log2_ratio, sample.mean_log2_ratio, sample.std_log2_ratio, zscore)
 
                 if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
                     cnvtype = "DEL"
@@ -488,8 +485,6 @@ def get_segmented_cnvs(ratio_no_header, tmp_calls):
     calls_dict = defaultdict(dict)
     a = pybedtools.BedTool(ratio_no_header)
     b = pybedtools.BedTool(tmp_calls)
-
-    print(ratio_no_header, tmp_calls)
 
     c = a.intersect(b, wo=True, stream=True)
     for line in iter(c):

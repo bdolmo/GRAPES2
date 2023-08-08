@@ -12,7 +12,8 @@ def merge_bed_files(cnv_file, sv_file, output_file):
     sv_exists = os.path.isfile(sv_file) and os.path.getsize(sv_file) > 0
 
     if not cnv_exists and not sv_exists:
-        raise FileNotFoundError("Both input files are missing.")
+        open(output_file, 'a').close()
+        return
     elif cnv_exists and not sv_exists:
         # If only cnv_file exists, write it to output
         cnv_bed = pd.read_csv(cnv_file, sep='\t', names=["chr", "start", "end", "info"])

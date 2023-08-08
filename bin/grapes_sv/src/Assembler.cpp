@@ -9,7 +9,13 @@
 #include "ssw_cpp.h"
 #include <unordered_map>
 
+#include "SeqLib/FermiAssembler.h"
+using namespace SeqLib;
 using namespace std;
+
+
+FermiAssembler f;
+
 
  struct node_t {
      	std::string lab;
@@ -546,7 +552,7 @@ std::pair<int, Contig> Assembler::Extend( std::unordered_multimap<std::string, C
 		NewContig.Consensus = NewConsensus;
 
 		if (debug) {
-			cout << "Contig => " << contig << endl;
+			cout << "\n" << "Contig => " << contig << endl;
 		}
 
 		if (isRevComp) {

@@ -255,6 +255,13 @@ class CnvPlot:
             return plot
 
         cnr_df = pd.read_csv(self._cnr_file, sep="\t")
+        # cnr_df = cnr_df.reindex(index=order_by_index(cnr_df.index, index_natsorted(cnr_df['chr'])))
+        # cnr_df = cnr_df.sort_values(by=['chr', 'start'], key=lambda x: natsorted(x))
+        # cnr_df = cnr_df.reindex(index=order_by_index(cnr_df.index, index_natsorted(cnr_df['chr'])))
+
+        cnr_df['chr'] = cnr_df['chr'].astype(str)  # Making sure the 'chr' column is string
+        cnr_df = cnr_df.reindex(index=natsorted(cnr_df.index, key=lambda i: (cnr_df['chr'][i], cnr_df['start'][i])))
+        cnr_df = cnr_df.reset_index(drop=True)  # Reset the index to maintain the new order
 
         sample_ratio = self._sample + "_ratio"
         min_ratio = cnr_df[sample_ratio].min()
@@ -267,7 +274,7 @@ class CnvPlot:
         palette_dict = defaultdict(dict)
         color_list = ["#4f6b76", "#b2bbc0"]
 
-        unique_chromosomes = cnr_df["chr"].unique().tolist()
+        unique_chromosomes = natsorted(cnr_df["chr"].unique().tolist())
         idx = 0
         for chr in unique_chromosomes:
             if idx == 2:
@@ -276,8 +283,12 @@ class CnvPlot:
             idx += 1
         x_list = []
 
+        print(palette_dict)
+
+        print(cnr_df)
+
         # Setting xtick divisions and labels
-        chromosomes = cnr_df["chr"].tolist()
+        chromosomes = natsorted(cnr_df["chr"].tolist())
         i = 0
         xtick_list = []
         for chr in chromosomes:

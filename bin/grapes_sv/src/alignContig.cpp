@@ -17,6 +17,9 @@
 #include "SeqLib/BamReader.h"
 
 #include <boost/algorithm/string.hpp>
+#include "bindings/cpp/WFAligner.hpp"
+using namespace wfa;
+
 
 struct unalignedBlock  {
 	int start;
@@ -29,6 +32,14 @@ struct unalignedBlock  {
 	int contigEnd;
 };
 
+
+ struct indel_t {
+	 string type;
+	 int start;
+	 int end;
+	 int size;
+ };
+
 struct summaryCigar {
 	int numS;
 	int numM;
@@ -37,6 +48,8 @@ struct summaryCigar {
 	int numD;
 	string collapsed;
 };
+
+
 
 summaryCigar cigar2Summary ( std::string& cigar) {
 
@@ -120,33 +133,6 @@ int checkSeqOccurrences (std::string& sequence, std::string& reference) {
 	return numOccurrences;
 }
 
-string getAlignedFromCigar ( std::string& cigar, std::string sequence) {
-
-	int flag = 0;
-	int ini;
-	int end;
-
-	std::string concat;
-	//10S30M5S
-	for (auto& i : cigar)  {
-		if (i == 'D' or i == 'I' or i == 'M' or i == 'X' or i == 'S' or i == '=') {
-			int n = std::stoi(concat);
-			if (i == 'S') {
-				if (flag ==1) {
-					end = n;
-				}
-				if (flag == 0) {
-					ini = n;
-					flag =1;
-				}
-			}
-			concat = "";				
-		}
-		else  {
-			concat += i;
-		}
-	}
-}
 
 alignmentStruct returnAlignment (const StripedSmithWaterman::Alignment& alignment, int& queryLength, int& refLength, string& refSeq, string& querySeq, string& strand){
 
@@ -229,7 +215,7 @@ int treatAligment(alignmentStruct& fwd, alignmentStruct& rev, std::vector<alignm
 	// Aquí ja tenim el millor alineament entre la porció del contig i la referència
 	// Ara extreurem les parts del contig que han quedat sense alinear i les introduirem al nou vector
 	if (debug) {
-		cout << "Segment:" << alignedSeq <<  "mismatches:" << best.mismatches << "\t" << " Query_start: " << best.queryStart << " Query_end: " << best.queryEnd << " Query_length: " << best.queryLength << "\t" << best.cigar << "\t" << "Ref_start: " << best.refStart << " Ref_end: " << best.refEnd << "\tRefLen: " << best.refLength  << endl;
+		cout << "Segment:" << alignedSeq <<  " mismatches:" << best.mismatches << "\t" << " Query_start: " << best.queryStart << " Query_end: " << best.queryEnd << " Query_length: " << best.queryLength << "\t" << best.cigar << "\t" << "Ref_start: " << best.refStart << " Ref_end: " << best.refEnd << "\tRefLen: " << best.refLength  << endl;
 	}
 	// If there is an unaligned prefix
 	if (best.queryStart > 0) {
@@ -265,16 +251,10 @@ int treatAligment(alignmentStruct& fwd, alignmentStruct& rev, std::vector<alignm
 	return alignedSize;
  }
 
- //######################################
- struct indel {
-	 string type;
-	 int start;
-	 int end;
-	 int size;
- };
+
 
 //######################################
-std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
+std::vector<indel_t> cigar2indel(std::string& cigar, int& pos) {
 
 	std::string concat;
 	int gaps = 0;
@@ -282,13 +262,13 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 	int globalPosition = 0;
 
 	std::string globalConcat;
-	std::vector<indel> indelVec;
+	std::vector<indel_t> indelVec;
 
 	for (auto& i : cigar)  {
 		if (i == 'D' or i == 'I' or i == 'M' or i == 'X' or i == 'S' or i == '=') {
 			if (i == 'D' or i == 'I') {
 				int n = std::stoi(concat);
-				indel INDEL;
+				indel_t INDEL;
 				if (i == 'D') {
 					INDEL.type = "DEL";
 					INDEL.start = pos+globalPosition;
@@ -333,7 +313,7 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 
 	int refPosition = 0;
 	std::string globalConcat;
-	std::vector<indel> indelVec;
+	std::vector<indel_t> indelVec;
 	bool passes = false;
 
 	//expanded refseq to check multimapping segments
@@ -451,7 +431,7 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 			debugFile << chr << "\t" << segPos << "\t" << segPos+1 << "\t" << segmentA.cigar << "\tFilter_Invalid_cigar" << endl;
 		}
 
-		std::vector<indel> indelsA = cigar2indel(segmentA.cigar, segPos);
+		std::vector<indel_t> indelsA = cigar2indel(segmentA.cigar, segPos);
   		int passes = passesCigarRules(chr, segmentA.cigar, segmentA.refStart, segPos, contigSeq, refSeq, genome);
 
 		if (!valid_ins && !valid_del || passes != 3) {
@@ -480,7 +460,7 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 
 		for (int i = 0; i< indelsA.size(); i++) {
 
-			indel ind    = indelsA[i];
+			indel_t ind    = indelsA[i];
 			int startPos = ind.start;
 			int endPos   = ind.end;
 			int size     = ind.size;
@@ -523,6 +503,7 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 	
 	if (sizeSplitReadVec > 1) {
 
+
 		for (int i = 0; i < splitReadVec.size()-1; i++) {
 
 			alignmentStruct segmentA = splitReadVec[i];
@@ -536,14 +517,17 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 			int startPos, endPos, size;
 			string type;
 
-			std::vector<indel> indelsA = cigar2indel(segmentA.cigar, segPos);
+			std::vector<indel_t> indelsA = cigar2indel(segmentA.cigar, segPos);
 			int valid_ins = std::regex_search (segmentA.cigar,m, insertion);
 			int valid_del = std::regex_search (segmentA.cigar,m, deletion);
+
+			cout << segmentA.cigar << "\t" << segmentB.cigar << endl;
+			cout << csA.numS << "\t" << csB.numS << "\t" << endl;
 
 			if (valid_ins or valid_del) {
 				//for (auto& ind : indelsA) {
 				for (int i = 0; i< indelsA.size(); i++) {
-					indel ind = indelsA[i];
+					indel_t ind = indelsA[i];
 					
 					startPos = ind.start;
 					endPos   = ind.end;
@@ -580,7 +564,7 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 					}
 				}
 			}
-			if ( csA.numS <= 1 && csB.numS <= 1) {
+			if ( csA.numS <= 2 && csB.numS <= 2) {
 
 				if (segmentA.strand == segmentB.strand) {
 
@@ -627,7 +611,7 @@ std::vector<indel> cigar2indel(std::string& cigar, int& pos) {
 					size     = endPos - startPos;
 					type     = "INV";
 				}
-				if ( size >= 100) {
+				if ( size >= 20) {
 					vcf_t call;
 					call.chr =  chr;
 					call.start = startPos;
@@ -799,7 +783,7 @@ std::vector<vcf_t> alignContig::Align(int& totalReads, int& totalReadsAssembled,
 			csize = (float)alignedSize/contig.length();
 		}
 		if (debug) {
-			cout << "Proporció del contig mapejada:" << csize << endl;
+			cout << "Proporció del contig mapejada:" << csize << endl << endl;
 		}
 		//if (csize > 0.9 && sizeRV > 1) {
 		if (csize > 0.9) {

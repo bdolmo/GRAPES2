@@ -24,7 +24,7 @@ extractOfftarget.o \
 extractOfftarget: $(OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker' 
-	$(CC) -static -o $@ $(CFLAGS) $(OBJS) $(LIB)  $(INC)  -I${SEQLIB} -lhts -lseqlib -lboost_program_options -lboost_timer  -lboost_system -lboost_filesystem -lz -llzma -lbz2
+	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LIB)  $(INC)  -I${SEQLIB} -lhts -lseqlib -lboost_program_options -lboost_timer  -lboost_system -lboost_filesystem -lz -llzma -lbz2
 	export LD_LIBRARY_PATH=../SeqLib/htslib
 	@echo 'Finished building target: $@'
 	@echo ' '

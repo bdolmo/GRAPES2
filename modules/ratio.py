@@ -13,6 +13,7 @@ import numpy as np
 import pybedtools
 import math
 from functools import reduce
+from natsort import natsorted, index_natsorted, order_by_index
 
 
 def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
@@ -25,7 +26,11 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
     all_ratios_name = f'{analysis_dict["output_name"]}.ratios.bed'
     all_ratios = str(Path(analysis_dict["output_dir"]) / all_ratios_name)
 
-    merged_df = pd.read_csv(analysis_dict["normalized_depth"], sep="\t")
+    if analysis_dict["offtarget"]:
+        merged_df = pd.read_csv(analysis_dict["normalized_all"], sep="\t")
+    else:
+        merged_df = pd.read_csv(analysis_dict["normalized_depth"], sep="\t")
+
     for sample in sample_list:
 
         msg = f" INFO: Calculating coverage ratios for sample {sample.name}"
@@ -46,7 +51,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
         ratio_file = str(Path(sample.sample_folder) / ratio_file_name)
         sample.add("ratio_file", ratio_file)
         # if not os.path.isfile(ratio_file):
-        if not os.path.isfile(ratio_file):
+        if os.path.isfile(ratio_file):
             #normalized_depth_tag = f"{sample.name}_normalized_final"
             normalized_depth_tag = f"{sample.name}_normalized_final"
 
@@ -76,6 +81,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             sample.add("std_norm_cov", std_normalized_cov)
 
             # Write dataframe as bed
+            # new_df = new_df.sort_values(by=['chr', 'start'], key=lambda x: natsorted(x))
             new_df.to_csv(ratio_file, sep="\t", mode="w", index=None)
         else:
             #normalized_depth_tag = f"{sample.name}_normalized_final"
@@ -104,6 +110,8 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
         ),
         df_list,
     )
+    # result = result.sort_values(by=['chr', 'start'], key=lambda x: natsorted(x))
+
     result.to_csv(all_ratios, sep="\t", mode="w", index=None)
     analysis_dict["all_ratios"] = all_ratios
     return sample_list, analysis_dict

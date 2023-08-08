@@ -48,26 +48,23 @@ def main(args):
     # I/O Initialization
     sample_list, analysis_dict, ngs_utils_dict, ann_dict = initialize(args)
 
+    if args.offtarget:
+        analysis_dict = create_offtarget_bed(args.bed, args.output_dir, args.reference, 
+            analysis_dict, ann_dict["mappability"], ann_dict["chromosomes"], ann_dict["blacklist"])
 
-    create_offtarget_bed(args.bed, args.output_dir, args.reference, 
-        ann_dict["mappability"], ann_dict["chromosomes"], ann_dict["blacklist"])
-
-
-    # for sample in sample_list:
-    #     sample = extract_offtarget(sample, analysis_dict[offtarget_windows_bed, args.reference, ann_dict)
-
-
-    sys.exit()
+        extract_offtarget(sample_list, args.reference, ngs_utils_dict, analysis_dict)
 
     if args.breakpoint:
         for sample in sample_list:
-            # if sample.name != "sample3.simulated":
+            # if sample.name != "sample49.simulated":
             #     continue
+
             msg = f" INFO: Calling breakpoints on sample {sample.name}"
             logging.info(msg)
 
             call_structural_variants(sample.bam, args.bed, args.reference, args.output_dir, 
-                sample, ngs_utils_dict, ann_dict)
+                sample, analysis_dict, ngs_utils_dict, ann_dict)
+        # sys.exit()
 
     # Depth, gc, mappability extraction formatting
     sample_list, analysis_dict = launch_read_depth(
@@ -90,7 +87,7 @@ def main(args):
     sample_list = custom_hmm_seg(sample_list, analysis_dict)
 
     sample_list = call_raw_cnvs(
-        sample_list, args.upper_del_cutoff, args.lower_dup_cutoff
+        sample_list, analysis_dict, args.upper_del_cutoff, args.lower_dup_cutoff
     )
     
     filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
@@ -178,7 +175,17 @@ def parse_arguments():
         help="Perform breakpoint (SV) analysis",
         dest="breakpoint"
     )
-
+    parser.add_argument(
+        "--offtarget", 
+        action="store_true", 
+        help="Perform offtarget CNV analysis",
+        dest="offtarget"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true", 
+        dest="force",
+    )
     parser.add_argument(
         "--upper_del_cutoff",
         type=float,

@@ -15,7 +15,7 @@ def load_ngs_utils_config():
     ngs_utils_dict = {
         # "megadepth": os.path.join(bin_dir, "megadepth"),
         # "mosdepth": os.path.join(bin_dir, "mosdepth"),
-        "grapes_sv": os.path.join(bin_dir, "GRAPES"),
+        "grapes_sv": os.path.join(bin_dir, "grapes_sv", "GRAPES"),
         "targetdepth": os.path.join(bin_dir, "TargetDepth", "targetDepth.pl"),
     }
     for soft in ngs_utils_dict:
@@ -56,6 +56,7 @@ def initialize(args):
     analysis_dict["list_genes_to_plot"] = []
     if args.plot_gene is not None:
         analysis_dict["list_genes_to_plot"] = args.plot_gene.replace(" ", "").split(",")
+    analysis_dict["force"] = args.force
 
     # load bam files from input directory
     bam_list = get_bam_files(args.bam_dir)

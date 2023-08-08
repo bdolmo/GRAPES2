@@ -143,11 +143,62 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
     analysis_dict["normalized_depth"] = normalized_depth
 
     norm_factors = ["gc"]
-    if not os.path.isfile(normalized_depth):
-        df = normalize_exon_level(analysis_dict, sample_list, norm_factors)
+    if not os.path.isfile(normalized_depth):       
+        # normalize ontarget exon-level normalized depth
+        df = normalize_exon_level(analysis_dict["unified_raw_depth"], sample_list, norm_factors)
+
+        # Export ontarget exon-level normalized depth
         df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
 
-    # Export exon level normalized coverage
+
+    normalized_offtarget_name = f"{analysis_dict['output_name']}.normalized.offtarget.bed"
+    normalized_offtarget = str(Path(analysis_dict["output_dir"]) / normalized_offtarget_name)
+    analysis_dict["normalized_offtarget"] = normalized_depth
+
+    if analysis_dict["offtarget"]:
+
+        if not os.path.isfile(normalized_offtarget):
+            # normalize off-target normalized depth
+            df = normalize_exon_level(analysis_dict["offtarget_raw_counts"], sample_list, norm_factors)
+
+            # Export offtarget normalized depth
+            df.to_csv(normalized_offtarget, sep="\t", mode="w", index=None)
+    
+
+
+    if os.path.isfile(normalized_depth) and os.path.isfile(normalized_offtarget):
+
+        # Load the two BED files into pandas DataFrames
+        bed1 = pd.read_csv(normalized_depth, sep="\t" )
+        bed2 = pd.read_csv(normalized_offtarget, sep="\t")
+
+        # Get column names from the first DataFrame
+        col_names = bed1.columns.tolist()
+
+        # Concatenate the DataFrames
+        combined = pd.concat([bed1, bed2])
+        # Reset index to ensure no duplicate indices
+        combined.reset_index(drop=True, inplace=True)
+        # print(combined)
+
+        # Set column names for the combined DataFrame
+        combined.columns = col_names
+ 
+        # # Use natsorted to get indices that would sort by chromosome in a natural way, and sort start position within each chromosome
+        combined['chr'] = combined['chr'].astype(str)
+        combined['start'] = combined['start'].astype(int)
+
+        combined = combined.reindex(index=order_by_index(combined.index, index_natsorted(combined['chr'])))
+        combined = combined.sort_values(['chr', 'start'])
+
+
+        # Write the sorted DataFrame to a new BED file
+        normalized_all_name = f"{analysis_dict['output_name']}.normalized.all.bed"
+        normalized_all = str(Path(analysis_dict["output_dir"]) / normalized_all_name)
+        analysis_dict["normalized_all"] = normalized_all
+        combined.to_csv(normalized_all, sep="\t", header=True, index=False)
+
+
     normalized_per_base_name = f"{analysis_dict['output_name']}.normalized.per.base.bed"
     normalized_per_base_file = str(
         Path(analysis_dict["output_dir"]) / normalized_per_base_name
@@ -238,13 +289,24 @@ def norm_by_lib(row, sample_median, chrX_median, sample_name, total_reads):
     return norm_lib
 
 
-def normalize_exon_level(analysis_dict, sample_list, fields):
+def normalize_exon_level(input_bed, sample_list, fields):
     """ """
 
-    df = pd.read_csv(analysis_dict["unified_raw_depth"], sep="\t")
+    df = pd.read_csv(input_bed, sep="\t")
 
     df['length'] = df['end'] - df['start']
     df = df[df['length'] > 10]
+
+    sample_names = [sample.name for sample in sample_list ]
+
+    # Calculate median coverage row-wise
+    df['median_coverage'] = df[sample_names].median(axis=1)
+
+    # Filter rows where median coverage is less than the threshold
+    df = df[df['median_coverage'] >= 30]
+
+    # Drop the 'median_coverage' column as it's not needed anymore
+    df = df.drop(columns=['median_coverage'])
 
     fields_str = ",".join(fields)
     msg = f" INFO: Normalizing exon level coverage by {fields_str}"

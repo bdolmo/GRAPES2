@@ -14,6 +14,8 @@ class SV {
 
 		bool classify(std::vector<vcf_t>&, std::string&);
 
+		std::vector<vcf_t> classifySmall(std::string&);
+
 	private:
 		std::vector<sam_t> reads;
 		std::string chrA;

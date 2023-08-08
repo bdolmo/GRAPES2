@@ -9,13 +9,17 @@ from modules.bed import BedRecord, load_bed_file
 from collections import defaultdict
 import subprocess
 
-def call_structural_variants(bam, bed, fasta, output_dir, sample, ngs_utils_dict, ann_dict):
+def call_structural_variants(bam, bed, fasta, output_dir, sample, analysis_dict, ngs_utils_dict, ann_dict):
     """ """
-
-    min_size = 15
-    max_size = 1000000
-    threads = 1
     sample_name = sample.name
+
+    bed_out = os.path.join(output_dir, sample_name, f"{sample_name}.GRAPES2.breakpoints.bed")
+    if os.path.isfile(bed_out) and not analysis_dict["force"]:
+        return
+
+    min_size = 20
+    max_size = 1000000
+    threads = 4
     command = [ngs_utils_dict["grapes_sv"], 
             '-b', bam,
             '-g', fasta,
@@ -35,7 +39,8 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, ngs_utils_dict
             '--find-large', "on",
             '-t', str(threads),
             '-e', ann_dict["blacklist"]]
-    
+
+    print(' '.join(command))
     result = subprocess.run(command, capture_output=True, text=True)
     
     tmp_files = {
@@ -45,12 +50,12 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, ngs_utils_dict
         "RR": os.path.join(output_dir, f"{sample_name}.RR.bam"),
         "SR": os.path.join(output_dir, f"{sample_name}.SR.bam"),
         "info": os.path.join(output_dir, f"{sample_name}.discordantInfo.txt"),
-        "fastq": os.path.join(output_dir, f"{sample_name}.fastq"),
+        # "fastq": os.path.join(output_dir, f"{sample_name}.fastq"),
         "FRcluster": os.path.join(output_dir, f"{sample_name}.FR.clusters.bed"),
         "RFcluster": os.path.join(output_dir, f"{sample_name}.RF.clusters.bed"),
         "FFcluster": os.path.join(output_dir, f"{sample_name}.FF.clusters.bed"),
         "RRcluster": os.path.join(output_dir, f"{sample_name}.RR.clusters.bed"),
-        "tmp_rawcalls": os.path.join(output_dir, f"{sample_name}.tmp.rawcalls.bed"),
+        # "tmp_rawcalls": os.path.join(output_dir, f"{sample_name}.tmp.rawcalls.bed"),
     }
 
 
@@ -62,13 +67,8 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, ngs_utils_dict
         raw_file_name = f"{sample_name}.tmp.rawcalls.bed"
         raw_file = os.path.join(output_dir, raw_file_name)
 
-        bed_out = os.path.join(output_dir, sample_name, f"{sample_name}.GRAPES2.breakpoints.bed")
 
-        if not os.path.isfile(bed_out):
-            o = open(bed_out, "w")
-        else:
-            o = open(bed_out, "w")
-
+        o = open(bed_out, "w")
         seen_coord = {}
         with open(raw_file) as f:
             for line in f:

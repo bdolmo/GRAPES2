@@ -4,23 +4,84 @@ import pandas as pd
 from modules.utils import sort_bed_file
 from modules.gc_content import annotate_gc_bed
 from modules.mappability import annotate_mappability_bed
+import subprocess
+from natsort import natsorted
+
+def join_bins(input_bed, sample_names):
 
 
+    sample_names = natsorted(sample_names)
+    output_bed = input_bed.replace(".bed", ".tmp.bed")
+    df = pd.read_csv(input_bed, sep="\t", header=None)
+
+    num_samples = df.shape[1] - 6  # calculate number of sample columns
+    sample_cols = [f"sample{i}" for i in range(1, num_samples + 1)]
+
+    df.columns = ["chr", "start", "end", "exon", "gc", "map"] + sample_names
+
+    df[['window', 'piece']] = df['exon'].str.split(';', expand=True)
+
+    df['length'] = df['end'] - df['start']
+    df['gc'] = df['gc'] * df['length']
+    df['map'] = df['map'] * df['length']
+    df = df[df['chr'] != 'chrM']  # remove rows where 'chrom' is 'chrM'
+    # groupby and calculate mean for each sample
+    grouped = df.groupby('window')
+
+    result = pd.DataFrame({
+        "chr": grouped['chr'].first(),
+        "start": grouped['start'].min(),
+        "end": grouped['end'].max(),
+        "exon": grouped['exon'].first(),
+        "gc": (grouped['gc'].sum() / grouped['length'].sum()).round(3),
+        "map": (grouped['map'].sum() / grouped['length'].sum()).round(3)
+    })
+
+    for sample in sample_names:
+        print(sample)
+        result[sample] = grouped[sample].sum()
+
+    result = result.reindex(natsorted(result.index))
+
+    result.to_csv(output_bed, sep="\t", index=False, header=True)
+    return output_bed
 
 
-
-
-
-def extract_offtarget(sample, bed, genome_fasta, analysis_dict):
+def extract_offtarget(sample_list, genome_fasta, ngs_utils_dict, analysis_dict):
     """ """
+    
+    msg = " INFO: Extracting off-target read depth information"
+    print(msg)
 
-    return sample
+    bams = natsorted([sample.bam for sample in sample_list ])
+    sample_names = natsorted([sample.name for sample in sample_list])   
+
+    offtarget_tmp_counts_name = "GRAPES2.offtarget.raw.counts.bed"
+    offtarget_tmp_counts = f'{analysis_dict["output_dir"]}/{offtarget_tmp_counts_name}'
+
+    # create a BedTool object from the bed file
+    bed = pybedtools.BedTool(analysis_dict["offtarget_gc_map"])
+
+    if not os.path.isfile(offtarget_tmp_counts):
+        # calculate coverage
+        result = bed.multi_bam_coverage(bams=bams)
+
+        # save results to the output file
+        result.saveas(offtarget_tmp_counts)
+
+        tmp_bed = join_bins(offtarget_tmp_counts, sample_names)
+        os.remove(offtarget_tmp_counts)
+        os.rename(tmp_bed, offtarget_tmp_counts)
+
+    analysis_dict["offtarget_raw_counts"] = offtarget_tmp_counts
+
+    return analysis_dict
 
 
 
-def create_offtarget_bed(bed, output_dir, genome_fasta, mappability_bed, chromosomes_file, blacklist):
+def create_offtarget_bed(bed, output_dir, genome_fasta, analysis_dict, mappability_bed, chromosomes_file, blacklist):
 
-        # Load bed file into a BedTool object
+    # Load bed file into a BedTool object
     bedtool = pybedtools.BedTool(bed)
 
     # Define function to pad interval
@@ -71,7 +132,9 @@ def create_offtarget_bed(bed, output_dir, genome_fasta, mappability_bed, chromos
     gc_bed = annotate_gc_bed(offtarget_windows_bed, output_dir, genome_fasta)
     map_bed = annotate_mappability_bed(gc_bed, mappability_bed)
 
+    analysis_dict["offtarget_gc_map"] = map_bed
 
+    return analysis_dict
     # Additiona annotations such as GC and mappability
 
 

@@ -13,17 +13,22 @@ from scipy.special import logsumexp
 def calculate_positional_mean_variance(sample_list, analysis_dict):
     """ """
     sample_baselines = {}
-    df_dict = pd.read_csv(analysis_dict["normalized_depth"], sep="\t").to_dict(
+
+    normalized_bed = analysis_dict["normalized_depth"]
+    if analysis_dict["offtarget"]:
+        normalized_bed = analysis_dict["normalized_all"]
+
+    df_dict = pd.read_csv(normalized_bed, sep="\t").to_dict(
         orient="index"
     )
     for sample in sample_list:
         baseline_samples = []
         num = 0
-        sample_depth_tag = ("{}_normalized_final").format(sample.name)
+        sample_depth_tag = f"{sample.name}_normalized_final"
         for control in sample.references:
             if num > 10:
                 break
-            control_depth_tag = ("{}_normalized_final").format(control[0])
+            control_depth_tag = f"{control[0]}_normalized_final"
             baseline_samples.append(control_depth_tag)
             num += 1
         sample_baselines[sample.name] = baseline_samples
@@ -45,7 +50,6 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
         for sample in sample_baselines:
 
             region_dict[sample] = defaultdict(dict)
-            # observations_dict[coord][sample] = defaultdict(dict)
             sample_depth_tag = ("{}_normalized_final").format(sample)
             sample_depth = df_dict[region][sample_depth_tag]
             background_depth = []
@@ -59,6 +63,10 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
             region_dict[sample]["bg_std"] = background_std
             region_dict[sample]["normalized_depth"] = sample_depth
             region_dict[sample]["coordinate"] = coord
+            region_dict[sample]["is_offtarget"] = False
+            if "pwindow" in df_dict[region]["exon"]:
+                region_dict[sample]["is_offtarget"] = True
+
         observations_dict[chromosome].append(region_dict)
     return observations_dict
 
@@ -139,16 +147,21 @@ class CustomHMM:
 
         mean_bg_std_list = []
         mean_bg_depth_list = []
+
+        mean_bg_std_offtarget_list = []
+
         for chr in self._obs_dict:
             for region in self._obs_dict[chr]:
                 # print(region[self._sample]['coordinate'])
                 sample_depth = region[self._sample]["normalized_depth"]
                 bg_depth = region[self._sample]["bg_mean"]
                 bg_std = region[self._sample]["bg_std"]
-                mean_bg_std_list.append(bg_std)
-                mean_bg_depth_list.append(bg_depth)
-        # mean_bg_depth = np.median(mean_bg_depth_list)
+                if region[self._sample]["is_offtarget"] == False:
+                    mean_bg_std_list.append(bg_std)
+                else:
+                    mean_bg_std_offtarget_list.append(bg_std)
         mean_bg_std = np.mean(mean_bg_std_list)
+        mean_bg_std_offtarget = np.mean(mean_bg_std_offtarget_list)
 
         for region in self._obs_dict[self._chr]:
             tmp = re.split(':|-|_', region[self._sample]['coordinate'])
@@ -174,7 +187,11 @@ class CustomHMM:
                 ratio = state / 2
                 x = sample_depth
                 mean_state = bg_depth * ratio
-                combined_error_estimate = np.sqrt(bg_std**2 + mean_bg_std**2)
+
+                if region[self._sample]["is_offtarget"] == False:
+                    combined_error_estimate = np.sqrt(bg_std**2 + mean_bg_std**2)
+                else:
+                    combined_error_estimate = np.sqrt(bg_std**2 + mean_bg_std_offtarget**2)
 
                 if x == 0:
                     x = 1
