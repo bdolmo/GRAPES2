@@ -183,6 +183,7 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 
 			vector<string> tmpCoord = split ( breakC->first, '\t');
 			string chr = tmpCoord[0];
+			string coordinates = tmpCoord[0]+"_"+tmpCoord[1]+"_"+tmpCoord[2];
 
 			int pos   = std::stoi(tmpCoord[1]);		
 			int start = pos - 500;
@@ -301,7 +302,8 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 				int idxContig = 0;
 				for (auto&contig : contigsJoint) {
 
-					string Qname = chr + "_" + mkey + "_" + std::to_string(idxContig);
+					string Qname = coordinates + "_" + std::to_string(idxContig);
+					cout << "Qname: " << Qname << endl;
 					bwamem.AlignSequence(contig, Qname, results, hardclip, secondary_cutoff, secondary_cap);
 					for (auto& i : results) {
 

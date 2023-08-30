@@ -22,7 +22,7 @@
 
 using namespace SeqLib;
 inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
-  return std::tie(lhs.align_pos) < std::tie(rhs.align_pos);
+  return std::tie(lhs.align_pos, lhs.read_name) < std::tie(rhs.align_pos, rhs.read_name);
 }
 
  float poisson_pmf(int k, double lambda) {
@@ -108,8 +108,9 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 	}
 	std::regex soft_regex_SMS ("^[0-9]+S[0-9]+M[0-9]+S$");
 	std::regex soft_regex_SIMS("^[0-9]+S[0-9]+M[0-9]+I[0-9]+S$");
-	std::regex soft_regex_L ("^[0-9]+S[0-9]+M$");
-	std::regex soft_regex_R ("^[0-9]+M[0-9]+S$");
+
+	std::regex soft_regex_L ("^[0-9]+S([0-9]+M[0-9]+[ID])?[0-9]+M([0-9]+S)?$");
+	std::regex soft_regex_R ("^([0-9]+S)?[0-9]+M([0-9]+[ID][0-9]+M)?[0-9]+S$");
 
 	int mapq_average;
 
@@ -155,29 +156,33 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 
 	for (std::map<std::string,std::string>::iterator it=mapName.begin(); it!=mapName.end(); ++it) {
 		std::pair <std::multimap<std::string, sam_t>::iterator, std::multimap<std::string, sam_t>::iterator> ret;
-  		ret = multimapName.equal_range(it->first);
+		ret = multimapName.equal_range(it->first);
 		std::vector<sam_t> tmp_hits;
-		for (std::multimap<std::string, sam_t>::iterator ret=multimapName.begin(); ret!=multimapName.end(); ++ret) {
-			mapq_vector.push_back(ret->second.mapq);
+		
+		for (std::multimap<std::string, sam_t>::iterator ret_iter=ret.first; ret_iter!=ret.second; ++ret_iter) {
+			mapq_vector.push_back(ret_iter->second.mapq);
+			
 			if (reads.size() == 1) {
-				strands.insert(std::pair<std::string, std::string>(ret->second.strand, ret->second.strand));
-				tmp_hits.insert(tmp_hits.begin(),ret->second);
+				strands.insert(std::pair<std::string, std::string>(ret_iter->second.strand, ret_iter->second.strand));
+				tmp_hits.insert(tmp_hits.begin(), ret_iter->second);
 				break;
-			}			
-			if (ret->second.read_name != it->first) {
+			}
+			
+			if (ret_iter->second.read_name != it->first) {
 				continue;
 			}
 
-			// skipping aligments with mapq score less than 10
-			if (ret->second.mapq < 10) {
+			// skipping alignments with mapq score less than 10
+			if (ret_iter->second.mapq < 10) {
 				continue;
 			}
 
-			tmp_hits.push_back(ret->second);
-			strands.insert(std::pair<std::string, std::string>(ret->second.strand, ret->second.strand));
+			tmp_hits.push_back(ret_iter->second);
+			strands.insert(std::pair<std::string, std::string>(ret_iter->second.strand, ret_iter->second.strand));
 		}
+		
 		std::sort(tmp_hits.begin(), tmp_hits.end(), comp_sam);
-		ordered_hits.insert( ordered_hits.end(), tmp_hits.begin(), tmp_hits.end() );
+		ordered_hits.insert(ordered_hits.end(), tmp_hits.begin(), tmp_hits.end());
 	}
 
 	mapq_average = std::accumulate(mapq_vector.begin(), mapq_vector.end(), 0.0) / mapq_vector.size();
@@ -223,7 +228,12 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 		second_cigar   = ordered_hits[i+1].cigar;
 		second_clipped = ordered_hits[i+1].clipped;		
 
-		cout << ordered_hits[i].cigar << " " << ordered_hits[i].pos << "\t"  <<  ordered_hits[i+1].cigar << " " <<  ordered_hits[i+1].pos << endl;
+		if (first_cigar == second_cigar) {
+			continue;
+		}
+
+		cout << ordered_hits[i].read_name << " " << ordered_hits[i].cigar << " pos:" << ordered_hits[i].pos << " align_pos:" << ordered_hits[i].align_pos  << " align_end:" << ordered_hits[i].align_end << endl;
+		cout << ordered_hits[i+1].read_name << " " << ordered_hits[i+1].cigar << " pos:" << ordered_hits[i+1].pos << " align_pos:" << ordered_hits[i+1].align_pos  << " align_end:" << ordered_hits[i+1].align_end << endl;
 
 		float pvalue_upstream;
 		float pvalue_downstream;
@@ -278,11 +288,12 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					call.hasRDsupport = false;
 					call.LOHsupport = ".";
 					vcf_v.push_back(call);
-					if ( size >=50 && (suspectedSVtype == "DEL" || suspectedSVtype == "undetermined")) {
+					if ( size >=20 && (suspectedSVtype == "DEL" || suspectedSVtype == "undetermined")) {
 						succeed = 1;
 					}
 				}
 				// Duplications
+				bool is_valid = 0;
 				if (second_align < first_align + first_length) {
 					int start, end;
 					int tmpStart, tmpEnd;
@@ -291,24 +302,31 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						start = second_align + posA;
 					}
 					if (svlength == "small"|| svlength == "medium") {
-						// tmpEnd = second_align + posA + 500;
-						// tmpStart = first_align + first_length + posA+500+1;
-						// cout << tmpEnd << " " << tmpStart << endl;
-						// if (tmpStart > tmpEnd) {
-						// 	end = tmpStart;
-						// 	start = tmpEnd;		
-						// }
-						// else {
-						// 	start = tmpStart;
-						// 	end   = tmpEnd;
-						// }
-						end = first_align + first_length + posA;
-						start = second_align + posA;
+						std::smatch m;
+						
+						if (std::regex_search(first_cigar, m, soft_regex_L)) {
+							end = first_align + first_length + posA;
+							start = second_align + posA;
+							is_valid = 1;
+						}
+						if (std::regex_search(first_cigar, m, soft_regex_R)) {
+							start = first_align + first_length + posA;
+							end = second_align + posA;
+							is_valid = 1;
+						}
+						tmpStart  = start;
+						tmpEnd = end;
+						if (tmpStart > tmpEnd) {
+							end = tmpStart;
+							start = tmpEnd;		
+						}
+						else {
+							start = tmpStart;
+							end   = tmpEnd;
+						}
 					}
 
-					cout << start << " " << end << endl;
-
-					int length =  end-start;
+					int length = end-start;
 					double meanPvalue = 0.00;
 					int size = end-start;
 					vcf_t call;
@@ -329,10 +347,12 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					call.RDmad = ".";
 					call.hasRDsupport = false;
 					call.LOHsupport = ".";
-					vcf_v.push_back(call);
-			
-					if (size >=20 && (suspectedSVtype == "DUP" || suspectedSVtype == "undetermined")) {
-						succeed = 1;
+					if (is_valid) {
+						vcf_v.push_back(call);
+
+						if (size >=20 && (suspectedSVtype == "DUP" || suspectedSVtype == "undetermined")) {
+							succeed = 1;
+						}
 					}
 				}
 			}

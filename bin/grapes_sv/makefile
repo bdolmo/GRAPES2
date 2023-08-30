@@ -4,14 +4,14 @@ CFLAGS= -std=c++11 -pthread -g
 RM=rm
 
 SEQLIB= ../SeqLib
-INC= -I ../htslib -I ../SeqLib/htslib/htslib -I ../SeqLib -L ../SeqLib/htslib -I ../WFA2-lib -L ../WFA2-lib/lib
+INC= -I ../htslib -I ../SeqLib/htslib/htslib -I ../SeqLib -L ../SeqLib/htslib
 LIB= -L ../SeqLib/htslib -L ../SeqLib/bin -Lhtslib
 
 
 %.o: src/%.c*
 	@echo ' Building file: $<'
 	@echo ' Invoking: GCC C++ Compiler'
-	$(CC) -I${SEQLIB} $(INC) $(LIB) -O2 -lhts -lseqlib -L../WFA2-lib/lib  -lbwa -lfml -lboost_system -lboost_filesystem -lboost_timer -lwfacpp -fopenmp -c -std=c++11 -o "$@" "$<"
+	$(CC) -I${SEQLIB} $(INC) $(LIB) -O2 -lhts -lseqlib   -lbwa -lfml -lboost_system -lboost_filesystem -lboost_timer -fopenmp -c -std=c++11 -o "$@" "$<"
 	@echo ' Finished building: $<'
 	@echo ' '
 
@@ -44,7 +44,7 @@ hashAligner.o\
 GRAPES: $(OBJS)
 	@echo ' Building target: $@'
 	@echo ' Invoking: GCC C++ Linker' 
-	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LIB)  $(INC) -I${SEQLIB} -O2 -lhts  -lseqlib -lbwa -lfml -lboost_program_options -lboost_timer  -lboost_system -lboost_filesystem -fopenmp -lz -llzma -lbz2 -lwfacpp
+	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LIB)  $(INC) -I${SEQLIB} -O2 -lhts  -lseqlib -lbwa -lfml -lboost_program_options -lboost_timer  -lboost_system -lboost_filesystem -fopenmp -lz -llzma -lbz2
 	export LD_LIBRARY_PATH=../SeqLib/htslib
 	@echo ' Finished building target: $@'
 	@echo ' '
