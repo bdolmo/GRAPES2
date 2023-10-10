@@ -14,9 +14,6 @@ from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
 from modules.breakpoint import call_structural_variants
 from modules.merge_cnv_sv import merge_bed_files
 from modules.offtarget import create_offtarget_bed, create_pseudowindows, extract_offtarget
-# from modules.breakpoint import call_structural_variants, export_sv_calls
-# from modules.blat import Blat
-
 from modules.call import (
     call_cnvs,
     call_raw_cnvs,
@@ -28,43 +25,46 @@ from modules.call import (
 main_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(main_dir, "/modules"))
 
-def main(args):
-
-    # Create output directory
-    if not os.path.isdir(args.output_dir):
-        os.mkdir(os.path.normpath(args.output_dir))
-
-    output_name = os.path.basename(os.path.normpath(args.output_dir))
+def setup_logging(output_dir: str):
+    output_name = os.path.basename(os.path.normpath(output_dir))
     log_file_name = f"{output_name}.grapes.log"
-    log_file = str(Path(args.output_dir) / log_file_name)
+    log_file = str(Path(output_dir) / log_file_name)
 
     # logging formatting
+
     logging.basicConfig(
         filename=log_file, filemode="w", format="%(asctime)s\t%(message)s"
     )
     logging.getLogger().setLevel(logging.INFO)
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
+def main(args):
+
+    # Create output directory
+    if not os.path.isdir(args.output_dir):
+        os.mkdir(os.path.normpath(args.output_dir))
+
+    # logging formatting
+    setup_logging(args.output_dir)
+
     # I/O Initialization
     sample_list, analysis_dict, ngs_utils_dict, ann_dict = initialize(args)
 
+    # Off-target depth extraction
     if args.offtarget:
         analysis_dict = create_offtarget_bed(args.bed, args.output_dir, args.reference, 
             analysis_dict, ann_dict["mappability"], ann_dict["chromosomes"], ann_dict["blacklist"])
 
         extract_offtarget(sample_list, args.reference, ngs_utils_dict, analysis_dict)
 
+    # SV breakpoint analysis
     if args.breakpoint:
         for sample in sample_list:
-            # if sample.name != "sample49.simulated":
-            #     continue
-
-            msg = f" INFO: Calling breakpoints on sample {sample.name}"
+            msg = f" INFO: Calling SV breakpoints on sample {sample.name}"
             logging.info(msg)
 
             call_structural_variants(sample.bam, args.bed, args.reference, args.output_dir, 
                 sample, analysis_dict, ngs_utils_dict, ann_dict)
-        # sys.exit()
 
     # Depth, gc, mappability extraction formatting
     sample_list, analysis_dict = launch_read_depth(
@@ -96,7 +96,9 @@ def main(args):
 
     sample_list = unify_raw_calls(sample_list)
 
-    sample_list = call_cnvs(sample_list, -0.621, 0.433, 2.58)
+    sample_list = call_cnvs(sample_list, args.upper_del_cutoff, 
+        args.lower_dup_cutoff, args.min_zscore)
+
     sample_list = export_cnv_calls(sample_list, analysis_dict)
 
     for sample in sample_list:
@@ -200,6 +202,14 @@ def parse_arguments():
         help=".",
         dest="lower_dup_cutoff",
     )
+    parser.add_argument(
+        "--min_zscore",
+        type=float,
+        default=2.58,
+        help=".",
+        dest="min_zscore",
+    )
+
     parser.add_argument(
         "--plot_normalization", 
         default=False, 

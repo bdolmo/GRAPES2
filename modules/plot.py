@@ -114,20 +114,19 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
     output_dir = ""
     for s in sample_list:
         if s.name != sample:
-            name_tag = ("{}_ratio").format(s.name)
+            name_tag = f"{s.name}_ratio"
             controls.append(name_tag)
         else:
             output_dir = s.sample_folder
 
-    gene_plot_name = ("{}.{}.png").format(sample, gene)
+    gene_plot_name = f"{sample}.{gene}.png"
     gene_plot = str(Path(output_dir) / gene_plot_name)
-    if os.path.isfile(gene_plot):
-        return
+    # if os.path.isfile(gene_plot):
+    #     return
     df = pd.read_csv(analysis_dict["all_ratios"], sep="\t")
     df = df[df["exon"].str.endswith(gene)]
     df_dict = df.to_dict(orient="records")
-
-    sample_tag = ("{}_ratio").format(sample)
+    sample_tag = f"{sample}_ratio"
 
     controls_ratios = []
     exons_controls = []
@@ -147,30 +146,60 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
     sample_dict["exons"] = sample_exons
     sample_df = pd.DataFrame.from_dict(sample_dict)
     max_ratio = max(sample_ratios) + 0.1
-    min_ratio = min(sample_ratios) - 0.1
+    # min_ratio = min(sample_ratios) - 0.1
+    # if max_ratio < 0.5:
+    #     max_ratio = 0.5
 
-    if max_ratio < 0.5:
-        max_ratio = 0.5
+    max_ratio = 1.2
+    min_ratio = -1.2
+
     if min_ratio > -1:
         min_ratio = -1
     with sns.axes_style("dark"):
         fig, axes = plt.subplots(1, figsize=(22, 7))
         plot_df = pd.DataFrame.from_dict(plot_dict)
         sns.set(font_scale=1.5)
+        sns.set_style({'axes.linewidth': 0.5})
+        ratio_tag = f"{sample}_ratio"
 
-        ratio_tag = ("{}_ratio").format(sample)
+
+        num_labels = len(axes.get_xticklabels())
+        if num_labels > 50:
+            fontsize = 7
+        elif num_labels > 30:
+            fontsize = 10
+        else:
+            fontsize = 12
 
         axes = sns.boxplot(
             x="exons", y="controls", data=plot_df, showfliers=False, color="#d4ebf2"
         ).set_title(gene)
-        axes = sns.scatterplot(
-            x="exons", y=sample_tag, data=sample_df, s=140, color="red"
+        # axes = sns.scatterplot(
+        #     x="exons", y=sample_tag, data=sample_df, s=140, color="red"
+        # )
+
+        red_points = sample_df[sample_df[sample_tag] < -0.621]
+        black_points = sample_df[(sample_df[sample_tag] >= -0.621) & (sample_df[sample_tag] <= 0.433)]
+        
+        axes  = sns.scatterplot(
+            x="exons", y=sample_tag, data=red_points, s=140, color="red"
         )
-        axes.axhline(0.433, ls="--", color="blue")
-        axes.axhline(-0.621, ls="--", color="red")
-        axes.set_xticklabels(axes.get_xticklabels(), rotation=90)
+        axes = sns.scatterplot(
+            x="exons", y=sample_tag, data=black_points, s=140, color="black"
+        )
+
+
+        axes.axhline(0.433, color="blue")
+        axes.axhline(-0.621, color="red")
+        axes.set_xticklabels(axes.get_xticklabels(), rotation=90, fontsize=fontsize)
         axes.set(ylim=(min_ratio, max_ratio))
         axes.set(ylabel="log2 ratio")
+        axes.tick_params(bottom=True, left=True)
+
+        for tick in axes.get_xticklabels():
+            tick.set_color('black')
+        for tick in axes.get_yticklabels():
+            tick.set_color('black')
 
         fig.savefig(gene_plot, bbox_inches="tight")
         plt.close()
@@ -255,10 +284,6 @@ class CnvPlot:
             return plot
 
         cnr_df = pd.read_csv(self._cnr_file, sep="\t")
-        # cnr_df = cnr_df.reindex(index=order_by_index(cnr_df.index, index_natsorted(cnr_df['chr'])))
-        # cnr_df = cnr_df.sort_values(by=['chr', 'start'], key=lambda x: natsorted(x))
-        # cnr_df = cnr_df.reindex(index=order_by_index(cnr_df.index, index_natsorted(cnr_df['chr'])))
-
         cnr_df['chr'] = cnr_df['chr'].astype(str)  # Making sure the 'chr' column is string
         cnr_df = cnr_df.reindex(index=natsorted(cnr_df.index, key=lambda i: (cnr_df['chr'][i], cnr_df['start'][i])))
         cnr_df = cnr_df.reset_index(drop=True)  # Reset the index to maintain the new order
@@ -268,7 +293,6 @@ class CnvPlot:
         min_limit = -1
         if min_ratio < -3:
             min_limit = -3.5
-
 
         # Setting chromosome color
         palette_dict = defaultdict(dict)
@@ -282,10 +306,6 @@ class CnvPlot:
             palette_dict[chr] = color_list[idx]
             idx += 1
         x_list = []
-
-        print(palette_dict)
-
-        print(cnr_df)
 
         # Setting xtick divisions and labels
         chromosomes = natsorted(cnr_df["chr"].tolist())

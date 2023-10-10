@@ -13,7 +13,7 @@ import numpy as np
 import pybedtools
 import math
 from modules.utils import remove_bed_header, signal_to_noise
-from modules.plot import plot_single_exon_cnv
+from modules.plot import plot_single_exon_cnv, plot_gene
 import shutil
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -333,9 +333,17 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                         if int(n_regions) > 1:
                             if analysis_dict["offtarget"] == False and  "pwindow" in regions:
                                 continue
-
                             o.write(outline)
                             p.write(outline)
+
+                            # Gene is assumed to be located at offset 3
+                            gene = regions
+                            tmp_regions = regions.split(";")
+                            if len(tmp_regions) > 1:
+                                gene = tmp_regions[-1]
+
+                            plot_gene(sample.name, sample_list, gene, analysis_dict)
+
                         else:
                             coordinate = f"{chr}\t{start}\t{end}"
                             seen_roi_dict[coordinate] = coordinate
@@ -387,7 +395,6 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                     q.write("\t".join(tmp_list) + "\n")
         f.close()
         q.close()
-        # sys.exit()
     return sample_list
 
 
@@ -470,13 +477,10 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
             if std >= 0.3:
                 continue
             outline = f"{variant}\t{str(std)}\n"
-            # print(sample.name +" " + outline)
             o.write(outline)
         o.close()
         sample.add("ready_cnv_bed", cnv_calls_bed)
-        # os.remove(tmp_calls)
-        # os.remove(ratio_no_header)
-        # os.remove(seg_no_header)
+
     return sample_list
 
 
