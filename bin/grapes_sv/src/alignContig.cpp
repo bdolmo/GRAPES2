@@ -15,11 +15,7 @@
 // Seqlib headers
 #include "SeqLib/RefGenome.h"
 #include "SeqLib/BamReader.h"
-
 #include <boost/algorithm/string.hpp>
-#include "bindings/cpp/WFAligner.hpp"
-using namespace wfa;
-
 
 struct unalignedBlock  {
 	int start;

@@ -16,7 +16,8 @@ def load_ngs_utils_config():
         # "megadepth": os.path.join(bin_dir, "megadepth"),
         # "mosdepth": os.path.join(bin_dir, "mosdepth"),
         "grapes_sv": os.path.join(bin_dir, "grapes_sv", "GRAPES"),
-        "targetdepth": os.path.join(bin_dir, "TargetDepth", "targetDepth.pl"),
+        "targetdepth": os.path.join(bin_dir, "TargetDepth", "target_depth.py"),
+        # "targetdepth": os.path.join(bin_dir, "TargetDepth", "targetDepth.pl"),
     }
     for soft in ngs_utils_dict:
         check_executable(ngs_utils_dict[soft], dump_messages=True)

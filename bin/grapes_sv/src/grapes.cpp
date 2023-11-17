@@ -72,19 +72,30 @@ std::pair<int, int> adjustMinimumBreakReads(float&, int&, int&);
 void writeRawCalls( std::vector<vcf_t>&, long&, std::string&, std::string&, std::string&, const int&); 
 
 bool is_file_exist(const char *);
-void resolveLargeSV ( string&, map<string, vector<GenomicRange>>&, RefGenome&, std::string, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, map<string, vector<sam_t>>&, std::vector<vcf_t>&, std::string);
-void locateBreakReads( std::string&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, map<string, vector<sam_t>>&, RefGenome&, std::string&, std::string, std::vector<vcf_t>&,  std::string, std::string);
-void findSmallSV ( string&, map<string, vector<sam_t>>&, int &, RefGenome&, std::string, std::string, std::vector<vcf_t>&, std::string);
-void Analyze ( string&, vector<string>&, string, int, string, int, int, string&, std::string, std::vector<vcf_t>&, std::string, double);
-std::tuple<double, double> reciprocalOverlap ( int&, int&, int&, int& );
-string fillQualString ( std::string& );
+void resolveLargeSV (string&, map<string, vector<GenomicRange>>&, RefGenome&, std::string, std::map<std::string, 
+	std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, 
+	std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, 
+	std::vector<GenomicRange>>&, map<string, vector<sam_t>>&, std::vector<vcf_t>&, std::string);
+void locateBreakReads(std::string&, std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, 
+	std::vector<GenomicRange>>&, map<string, vector<sam_t>>&, RefGenome&, std::string&, std::string, 
+	std::vector<vcf_t>&,  std::string, std::string);
+void findSmallSV (string&, map<string, vector<sam_t>>&, int &, RefGenome&, std::string, std::string, 
+	std::vector<vcf_t>&, std::string);
+void Analyze (string&, vector<string>&, string, int, string, int, int, string&, std::string, 
+	std::vector<vcf_t>&, std::string, double);
+std::tuple<double, double> reciprocalOverlap (int&, int&, int&, int&);
+std::string fillQualString (std::string&);
 
 // lexicographical comparison provides strict weak ordering
 inline bool comp_gr(const GenomicRange& lhs, const GenomicRange& rhs){
-	return std::tie(lhs.chromosomeA, lhs.chromosomeB, lhs.start, lhs.end, lhs.supporting, lhs.t_cov, lhs.softclip_type, lhs.discordant_ratio) < std::tie(rhs.chromosomeA, rhs.chromosomeB, rhs.start, rhs.end, rhs.supporting, rhs.t_cov, rhs.softclip_type, rhs.discordant_ratio);
+	return std::tie(lhs.chromosomeA, lhs.chromosomeB, lhs.start, lhs.end, lhs.supporting, 
+	lhs.t_cov, lhs.softclip_type, lhs.discordant_ratio) < std::tie(rhs.chromosomeA, rhs.chromosomeB, 
+	rhs.start, rhs.end, rhs.supporting, rhs.t_cov, rhs.softclip_type, rhs.discordant_ratio);
 }
 inline bool comp_vcf(const vcf_t& lhs, const vcf_t& rhs){
-        return std::tie(lhs.chr, lhs.start, lhs.end, lhs.precision, lhs.svtype, lhs.breakReads, lhs.assembled, lhs.covPvalue, lhs.discordants, lhs.alleleBalance) < std::tie(rhs.chr, rhs.start, rhs.end, rhs.precision, 		rhs.svtype, rhs.breakReads, rhs.assembled, rhs.covPvalue, rhs.discordants, rhs.alleleBalance);
+        return std::tie(lhs.chr, lhs.start, lhs.end, lhs.precision, lhs.svtype, lhs.breakReads, 
+		lhs.assembled, lhs.covPvalue, lhs.discordants, lhs.alleleBalance) < std::tie(rhs.chr, rhs.start, 
+		rhs.end, rhs.precision, rhs.svtype, rhs.breakReads, rhs.assembled, rhs.covPvalue, rhs.discordants, rhs.alleleBalance);
 }
 inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
   return std::tie(lhs.align_pos) < std::tie(rhs.align_pos);
@@ -109,21 +120,14 @@ Aligner::Aligner(const string& _query, const string& _reference, int _max_mismat
 }
 
 // Inicialitzem el constructor per la classe Aligner
-alignContig::alignContig( std::vector<std::string>& _contigs, std::string& _reference, std::string& _chr, int& _genomicStart, int& _genomicEnd, int& _readLength, std::string& _genome) {
+alignContig::alignContig( std::vector<std::string>& _contigs, std::string& _reference, std::string& _chr, int& _genomicStart, 
+int& _genomicEnd, int& _readLength, std::string& _genome) {
 	contigs        = _contigs;
 	reference      = _reference;
 	chr            = _chr;
 	genomicStart   = _genomicStart;
 	genomicEnd     = _genomicEnd;
-	readLength     = _readLength;
-	genome	       = _genome;
-}
-
-Assembler::Assembler( std::vector<std::string>& _reads, int _minOlapLength, int _maxMismatches, int _maxGaps, int _kSize) {
-	reads         = _reads;
-	minOlapLength = _minOlapLength;
-	maxMismatches = _maxMismatches;
-	maxGaps       = _maxGaps;
+	readLength     = _readLength;resolveLargeSV
 	kSize         = _kSize;
 }
 
@@ -135,7 +139,8 @@ dna2bit::dna2bit( std::string& _dna_str ) {
 	dna_str = _dna_str;
 }
 
-clusterDiscordant::clusterDiscordant( const std::string& _bamFile, const std::string& _outdir, const std::string& _sampleName, int _minClusterSize, int _numSDs, long& _genomeSize, const std::string& _genome, std::string _getCountsByWindow, int& _maxInsertSize ) {
+clusterDiscordant::clusterDiscordant( const std::string& _bamFile, const std::string& _outdir, const std::string& _sampleName, 
+	int _minClusterSize, int _numSDs, long& _genomeSize, const std::string& _genome, std::string _getCountsByWindow, int& _maxInsertSize ) {
 	bamFile        = _bamFile;
 	outdir         = _outdir;
 	sampleName     = _sampleName;
@@ -155,7 +160,8 @@ Cnv::Cnv( std::string& _outDir, std::string& _raw_counts, int _medianSomaticCoun
 	n_states              = _n_states;
 }
 
-clusterSC::clusterSC( const string& _bamFile, const string& _outDir, int _minSoftLength, float _softClipLenPerc, int _minSoftClusterSize, int _totalSR) {
+clusterSC::clusterSC( const string& _bamFile, const string& _outDir, int _minSoftLength, 
+	float _softClipLenPerc, int _minSoftClusterSize, int _totalSR) {
 	bamFile           = _bamFile;
 	outDir            = _outDir;
 	minSoftLength     = _minSoftLength;
@@ -188,7 +194,9 @@ smallSV::smallSV(std::string& _bamFile, std::string& _reference, int _minOlapBas
 }
 
 // Inicialitzem el constructor per la classe SV
-SV::SV(vector<sam_t>& _reads, string _chrA, string _chrB, int _posA, int _posB, string _soft_type, int _total_reads, int _total_assembled, string _bam, string& _ref_sequence, std::string _svlength, int _nDiscordants, double _pvalue_discordant, double _kmer_diversity) {
+SV::SV(vector<sam_t>& _reads, string _chrA, string _chrB, int _posA, int _posB, string _soft_type, int _total_reads, 
+	int _total_assembled, string _bam, string& _ref_sequence, std::string _svlength, int _nDiscordants, 
+	double _pvalue_discordant, double _kmer_diversity) {
 	reads             = _reads;
 	chrA              = _chrA;
 	chrB              = _chrB;
@@ -206,21 +214,6 @@ SV::SV(vector<sam_t>& _reads, string _chrA, string _chrB, int _posA, int _posB, 
 	kmer_diversity    = _kmer_diversity;
 }
 
-// Inicialitzem el constructor per la classe reAlignSoftClip
-/*reAlignSoftClip::reAlignSoftClip(std::string _read, string _chrom, int _pos, int _end,  std::string _cigar, std::string _ref_sequence, std::string _soft_type, std::string _VCF, std::string _svlength, int _posA, int _posB, int _mapq) {
-	read = _read;
-	chr  = _chrom;
-	pos   = _pos;
-	end = _end;
-	cigar = _cigar;
-	ref_sequence = _ref_sequence;
-	softclip_type = _soft_type;
-	VCF = _VCF;
-        svlength = _svlength;
-	posA = _posA;
-	posB = _posB;
-	mapq = _mapq;
-}*/
 
 varCall::varCall( std::string _bamFile, std::string _genome, int _minMapQ, int _minBaseQ, int _minSNV, int _minCov, float _minHomRatio ) {
 	bamFile    = _bamFile;
@@ -399,40 +392,6 @@ int main (int argc, char* argv[]) {
 	omp_set_num_threads(threads);
 	omp_set_nested(1);
 
-	//std::string contig = "GCAGAAAAGCTGAAATTTCTAAAAATCAGAGCAACTCTTCTCCTCCAAAGGAACGCAGCTCCTCACCAGCAACGGAACAAAGCTGTAATAACAAACTTCTCTGAGCTAAAGGAGGATGTTCGAAC";
-	//std::string refSequence = "aagagagtagtggttctcccagaatggagtttgagatctgagaacggacagactgcctcctcaagtgggtccctgacccctgagtagcctaactgcgagacacctcccagtaggggccgactgacacctcacacagccaggtgcccctctgagatgaagcttccagagaaaggatcaggcaggaacatttgccgttctgcaatatttgcggttctgcagcctctgctggtgatacccaggaaacagggtctggagtggacctccagcaaactccaacagacctgcagctgaggggcctgactgttagaaggaaaactaacaaacagaaaggacatccacaccaaaaccccatctgcacgtcaccatcatcaaagaccaaaggtagataaaaccacaatgatggggagaaaacagagcagaaaagctgaaaattctaaaaatcagagcaactcttctcctccaaaggaacgcagctcctcaccagcaacggaacaaagctggacggagaatgactttgacgagttgagagaagaaggcttcagacaatcagtaataacaaacttctctgagctaaaggaggatgttcgaacccatcgcaaagaagctaaaaaccttgaaaaaagattagacaaatggctaactagaataaacagcatagagaagatgttaaatgacctgatggagctgaaaaccatggcacgagaactacatgatgcatgcacaagcttcagtagccaattcgatcaagtggaagaaagggtatcagtgattgaagatcaaatgaatgaaatgaagcgagaagagaagtttagagaaaaaagattaaaaagaaacgaacaaagcctccaagaaatatgggactatgtgaaaagaccaaatctacatctgattggtgtacctgaaagtgacggggagaatggaaccaagttggaaaacactctgcaggatatcatccaggagaacttccccaacctagcaaggcaggccaacattcaaattca";
-
-	//std::vector<string> contigVec;
-	//contigVec.push_back(contig);
-
-	/*int Pstart = 10000;
-	int Pend   = 10000;
-	string CHR = "chr1";
-	alignContig A (contigVec, refSequence, CHR, Pstart, Pend);
-	A.Align(vcf_v);
-
-	cout << vcf_v.size() << endl;
-
-	for (auto l : vcf_v) {
-
-cout << l.chr << "\t" << l.start << "\t" << l.end << "\t" << l.precision << ";SVTYPE=" << l.svtype << ";MAPQ=" << l.mapq << ";KDIV=" << l.kdiv << ";BREAKREADS=" << l.breakReads << ";ASSEMBLED=" << l.assembled << ";PE=" <<
-	l.discordants << ";CSDISC=" << l.cumulativeSize << ";NINS=" << 0 << ";RDratio=" << l.RDratio << ";RDmad=" << l.RDmad << ";RDsupp=" << l.hasRDsupport << ";LOHsupp=" << l.LOHsupport << "\n";
-
-	}
-	*/
-	//return 0;
-	
-	//hashAligner H (14, 2, 1);
-	//std::multimap<std::string, int> queryHash = H.indexContig(contig);
-	
-
-	//std::vector<seed_t> seedV = H.findSeeds(RefSequence, contig, queryHash);
-
-	//std::vector<seed_t> mseedV = H.mergeIntervals(seedV);
-    	//H.createDAG(mseedV);
-
-	//return 0;
-
 	// Exclude region
 	excludeRegion blackList(regionsExclude);
 	map<string, vector<GenomicRange>> mapOfRegions = blackList.readAndSave();
@@ -451,58 +410,6 @@ cout << l.chr << "\t" << l.start << "\t" << l.end << "\t" << l.precision << ";SV
 	if (wes == "off") {
 	    std::tie(nDiscordants, nBreakReads) = adjustMinimumBreakReads(mean_coverage, nDiscordants, nBreakReads);
 	}
-
-	// Deprecated Jul19. Now using reference coverage profile https://doi.org/10.3389/fgene.2015.00045
-	/*if (cnv == "on" && wes == "off") {
-
-		std::string outCNV = outdir + "/" + output + ".CNV.bed";
-
-		int medianSomaticCounts;
-		if (readCounts_somatic.size() == 0) {
-			medianSomaticCounts = 0;
-		} 
-		else {
-			medianSomaticCounts = computeMedian(readCounts_somatic);
-		}
-		int medianGerminalCounts;
-		if (readCounts_germinal.size() == 0) {
-			medianGerminalCounts = 0;
-		} 
-		else {
-			medianGerminalCounts = computeMedian(readCounts_germinal);
-		}
-		std::cout << " INFO: Median somatic chromosome counts per window: " << medianSomaticCounts << "\n";
-		std::cout << " INFO: Median germinal chromosome counts per window: " << medianGerminalCounts << "\n";
-
-		logFile << " INFO: Median somatic chromosome counts per window: - " << medianSomaticCounts << "\n";
-		logFile << " INFO: Median germinal chromosome counts per window: - " << medianGerminalCounts << "\n";
-
-		// Normalizing counts
-		std::string count_file = outdir + "/" + "coverage_windows.bed";
-		Cnv cnv1 (outdir, count_file, medianSomaticCounts, medianGerminalCounts, 3);
-
-		if (!is_file_exist(outCNV.c_str())) {
-			now = time(0);
-			dt = ctime(&now);			
-			std::cout << " INFO: Normalizing GC content " << endl;
-			logFile << " INFO: Normalizing GC content " << dt << endl;
-			cnv1.normalize_gc();
-
-			now = time(0);
-			dt = ctime(&now);
-			std::cout << " INFO: Normalizing Mappability " << endl;
-			logFile << " INFO: Normalizing Mappability " << dt << endl;
-
-			cnv1.normalize_mappability();
-
-			// Segmenting using external software (HMMseg)
-			std::string cmd = "perl " +  exe_path_boost.string() + "/HMMseg.pl " + outdir + "/" + "copy_ratios.bed " + std::to_string(binSize) + " " + outCNV + " " + output + " " + outdir + " " + regionsExclude + " " + bamFile + " " + reference + " " + std::to_string(mean_coverage) ;
-
-			system(cmd.c_str());
-		}
-		vcf_v = cnv1.dumpCNV(output, bamFile, reference);
-	}*/
-	//return 0;
 
 	// Analyzing large SV	
 	if (fl == "on") {
@@ -648,8 +555,10 @@ void writeRawCalls( std::vector<vcf_t>& vcf_v, long& genomeSize, std::string& ba
 			numInserts = totalFF + totalRR;
 		}
 
-vcf_out << l.chr << "\t" << l.start << "\t" << l.end << "\t" << l.precision << ";SVTYPE=" << l.svtype << ";MAPQ=" << l.mapq << ";KDIV=" << l.kdiv << ";BREAKREADS=" << l.breakReads << ";ASSEMBLED=" << l.assembled << ";PE=" <<
-	l.discordants << ";CSDISC=" << l.cumulativeSize << ";NINS=" << numInserts << ";RDratio=" << l.RDratio << ";RDmad=" << l.RDmad << ";RDsupp=" << l.hasRDsupport << ";LOHsupp=" << l.LOHsupport << "\n";
+vcf_out << l.chr << "\t" << l.start << "\t" << l.end << "\t" << l.precision << ";SVTYPE=" << l.svtype << ";MAPQ=" 
+	<< l.mapq << ";KDIV=" << l.kdiv << ";BREAKREADS=" << l.breakReads << ";ASSEMBLED=" << l.assembled << ";PE=" <<
+	l.discordants << ";CSDISC=" << l.cumulativeSize << ";NINS=" << numInserts << ";RDratio=" << l.RDratio << ";RDmad=" 
+	<< l.RDmad << ";RDsupp=" << l.hasRDsupport << ";LOHsupp=" << l.LOHsupport << "\n";
 	}
 }
 

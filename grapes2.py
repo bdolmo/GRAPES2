@@ -13,7 +13,8 @@ from modules.ratio import calculate_coverage_ratios
 from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
 from modules.breakpoint import call_structural_variants
 from modules.merge_cnv_sv import merge_bed_files
-from modules.offtarget import create_offtarget_bed, create_pseudowindows, extract_offtarget
+from modules.offtarget import (create_offtarget_bed, 
+    create_pseudowindows, extract_offtarget)
 from modules.call import (
     call_cnvs,
     call_raw_cnvs,

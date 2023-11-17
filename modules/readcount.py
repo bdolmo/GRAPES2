@@ -46,6 +46,9 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         analysis_dict["threads"],
     )
 
+    print(cmd)
+    # sys.exit()
+
     if not os.path.isfile(unified_raw_depth) and not os.path.isfile(
         per_base_coverage_file
     ):
@@ -74,6 +77,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         o.close()
         os.remove(per_base_coverage_file)
         os.rename(per_base_coverage_file_tmp, per_base_coverage_file)
+    sys.exit()
 
     summary_log_name = "summary_metrics.log"
     summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
