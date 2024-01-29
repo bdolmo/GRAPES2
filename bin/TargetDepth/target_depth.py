@@ -174,7 +174,7 @@ def main():
     samtools_path = which("samtools")
     
     if not os.path.exists(summary_file) or os.path.getsize(summary_file) == 0:
-        print(f"ERROR: missing {summary_file} file")
+        print(f" ERROR: missing {summary_file} file")
     else:
         with open(summary_file, 'r') as rf:
             lines = rf.readlines()

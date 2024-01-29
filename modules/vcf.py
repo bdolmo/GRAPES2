@@ -27,6 +27,7 @@ def get_reference_contigs_from_bam(bam_file_path):
 
     return full_contigs, reference_genome
 
+
 def define_genotype_based_on_cn(cn: int):
     """ """
 
@@ -44,6 +45,7 @@ def define_genotype_based_on_cn(cn: int):
         return '1/1'  # Homozygous duplication or higher copy gain
     else:
         return '.'  # Undefined or invalid CN
+
 
 def define_genotype_based_on_af(af: float):
     """ """
@@ -86,10 +88,8 @@ def annotate_ontarget_overlaps(bed, roi_bed):
             seen_records[annotated_feature] = seen_records
 
     out_f.close()
-
     os.remove(bed)
     os.rename(output_bed, bed)
-
     
 
 def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):

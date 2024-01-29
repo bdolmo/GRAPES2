@@ -27,7 +27,7 @@ def load_ngs_utils_config():
     return ngs_utils_dict
 
 
-def load_annotation_config():
+def load_annotation_config(genome_version: str):
     """ """
     ann_dict = {
         "mappability": os.path.join(
@@ -40,6 +40,19 @@ def load_annotation_config():
             ann_dir, "chromosomes", "hg19.chromosomes.txt"
         )
     }
+    if genome_version == "hg38":
+        ann_dict = {
+            "mappability": os.path.join(
+                ann_dir, "mappability", "wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz"
+            ),
+            "blacklist": os.path.join(
+                ann_dir, "blacklist", "consensusBlacklist.hg38.bed"
+            ),
+            "chromosomes": os.path.join(
+                ann_dir, "chromosomes", "hg38.chromosomes.txt"
+            )
+        }
+
     for item in ann_dict:
         if not os.path.isfile(ann_dict[item]):
             raise FileNotFoundError(ann_dict[item])
@@ -52,7 +65,7 @@ def load_annotation_config():
 def initialize(args):
     """ """
     ngs_utils_dict = load_ngs_utils_config()
-    annotation_dict = load_annotation_config()
+    annotation_dict = load_annotation_config(args.genome_version)
     analysis_dict = vars(args)
 
     analysis_dict["output_name"] = os.path.basename(analysis_dict["output_dir"])

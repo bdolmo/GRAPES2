@@ -1,5 +1,5 @@
 *.o
-annotations/
+annotations/mappability
 test_dataset/
 test_lic/
 test_multiple/

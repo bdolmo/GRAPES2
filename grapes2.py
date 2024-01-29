@@ -183,6 +183,19 @@ def parse_arguments():
         help="Genome reference in FASTA format",
         dest="reference",
     )
+
+    parser.add_argument(
+        "-g",
+        "--genome_version",
+        required=True,
+        type=str,
+        choices=["hg19", "hg38"],
+        default="hg19",
+        help="Genome build",
+        dest="genome_version",
+    )
+
+
     parser.add_argument(
         "--breakpoint", 
         action="store_true", 
