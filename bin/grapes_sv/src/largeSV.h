@@ -21,7 +21,8 @@ extern bool debug;
 		// Constructor
 		largeSV(std::string&, std::string&, int, int);
 
-		void callStructVar( std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, std::map<string, std::vector<sam_t>>& breakReadClusters, std::vector<vcf_t>&, std::string svtype, std::string);
+		void callStructVar( std::map<std::string, std::vector<GenomicRange>>&, std::map<std::string, std::vector<GenomicRange>>&, 
+			std::map<string, std::vector<sam_t>>& breakReadClusters, std::vector<vcf_t>&, std::string svtype, std::string);
 
 	private:
 		std::string bamFile;

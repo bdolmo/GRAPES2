@@ -38,7 +38,7 @@ def join_bins(input_bed, sample_names):
     })
 
     for sample in sample_names:
-        print(sample)
+        # print(sample)
         result[sample] = grouped[sample].sum()
 
     result = result.reindex(natsorted(result.index))

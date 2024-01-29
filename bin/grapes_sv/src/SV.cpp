@@ -25,70 +25,66 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
   return std::tie(lhs.align_pos, lhs.read_name) < std::tie(rhs.align_pos, rhs.read_name);
 }
 
- float poisson_pmf(int k, double lambda) {
-    // https://en.wikipedia.org/wiki/Poisson_distribution#Definition
-     return pow(M_E, k * log(lambda) - lambda - lgamma(k + 1.0));
- }
+bool checkForIndels (std::string chr, int pos, int start, std::string cigar, int mapq, int numReads, 
+int numAssembled, double kmerDiversity, int meanBaseQual, std::vector<vcf_t>& vcf_v, std::string& bamFile) {
 
- bool checkIndels (std::string chr, int pos, int start, std::string cigar, int mapq, int n_reads, int n_assembled, double kmer_diversity, std::vector<vcf_t>& vcf_v, std::string& bamFile) {
+// checking if cigar contains MIM or MDM
+std::regex insertion ("^[0-9]+M[0-9]+I[0-9]+M$");
+std::regex deletion ("^[0-9]+M[0-9]+D[0-9]+M$");
 
-	// checking if cigar contains MIM or MDM
-	std::regex insertion ("^[0-9]+M[0-9]+I[0-9]+M$");
-	std::regex deletion ("^[0-9]+M[0-9]+D[0-9]+M$");
+std::smatch m;
+int found_ins = 0;
+int found_del = 0;
+found_ins = std::regex_search (cigar,m, insertion);
+found_del = std::regex_search (cigar,m, deletion);
 
-        std::smatch m;
-	int found_ins = 0;
-	int found_del = 0;
-	found_ins = std::regex_search (cigar,m, insertion);
-	found_del = std::regex_search (cigar,m, deletion);
-
-	if (found_del != 0 || found_ins != 0) {
- 		std::string svtype;
-		std::vector<std::string> tmp = split( cigar, 'M' );
-		std::vector<std::string> tmp2;
-		if (found_ins != 0 ) {
-			svtype = "INS";
-			tmp2 = split( tmp[1], 'I' );
-		}
-		if (found_del != 0) {
-			svtype = "DEL";
-			tmp2 = split( tmp[1], 'D' );
-		}
-		int match1 = atoi(tmp[0].c_str());
-		int indel  = atoi(tmp2[0].c_str());
-		int match2 = atoi(tmp[2].c_str());
-		int st     = start + pos -500 + match1;
-		int ed     = start + pos -500 + match1 +indel;
-		int size = ed - st;
-
-		vcf_t call;
-		call.chr =  chr;
-		call.start = st;
-		call.end = ed;
-		call.precision = "PRECISE";
-		call.svtype = svtype;
-		call.breakReads = n_reads;
-		call.assembled = n_assembled;
-		call.discordants = 0;
-		call.covPvalue = 0.00;
-		call.alleleBalance = 0;
-
-		call.cumulativeSize = 0;
-		call.discPvalue = 0.00;
-		call.mapq = mapq;
-		call.kdiv = kmer_diversity;
-		call.LOHsupport = ".";
-		call.RDratio = ".";
-		call.RDmad   = ".";
-		call.hasRDsupport = false;
-		vcf_v.push_back(call);
-
-		return 1;
+if (found_del != 0 || found_ins != 0) {
+	std::string svtype;
+	std::vector<std::string> tmp = split( cigar, 'M' );
+	std::vector<std::string> tmp2;
+	if (found_ins != 0 ) {
+		svtype = "INS";
+		tmp2 = split( tmp[1], 'I' );
 	}
-	else {
-		return 0;
+	if (found_del != 0) {
+		svtype = "DEL";
+		tmp2 = split( tmp[1], 'D' );
 	}
- }
+	int match1 = atoi(tmp[0].c_str());
+	int indel  = atoi(tmp2[0].c_str());
+	int match2 = atoi(tmp[2].c_str());
+	int st     = start + pos -500 + match1;
+	int ed     = start + pos -500 + match1 +indel;
+	int size = ed - st;
+
+	vcf_t call;
+	call.chr =  chr;
+	call.start = st;
+	call.end = ed;
+	call.precision = "PRECISE";
+	call.svtype = svtype;
+	call.breakReads = numReads;
+	call.assembled = numAssembled;
+	call.discordants = 0;
+	call.covPvalue = 0.00;
+	call.alleleBalance = 0;
+	call.cumulativeSize = 0;
+	call.discPvalue = 0.00;
+	call.mapq = mapq;
+	call.kdiv = kmerDiversity;
+	call.LOHsupport = ".";
+	call.RDratio = ".";
+	call.RDmad   = ".";
+	call.hasRDsupport = false;
+	call.meanBaseQual = meanBaseQual;
+	vcf_v.push_back(call);
+
+	return 1;
+}
+else {
+	return 0;
+}
+}
 
 
  vector<vcf_t> SV::classifySmall(std::string& suspectedSVtype) {
@@ -114,19 +110,17 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 
 	int mapq_average;
 
-	//ofstream printOut;
-
 	// Skipping un-assembled reads 
 	if ( total_assembled == 0 && total_reads > 1) {
-		return vcf_v;
+		
 	}
 
 	// if we have a contig that has not created an split read throught BWA alignment
 	if (reads.size() == 1) {
-
 		mapq_average = reads[0].mapq;
 		// Check if CIGAR contains MIM or MDM indels
-		if ( checkIndels(chrA, reads[0].pos, posA, reads[0].cigar, mapq_average, total_reads, total_assembled, kmer_diversity, vcf_v, bamFile) == 1 ) {
+		if ( checkForIndels(chrA, reads[0].pos, posA, reads[0].cigar, mapq_average, 
+			total_reads, total_assembled, kmer_diversity, meanBaseQual, vcf_v, bamFile) == 1 ) {
 
 		}
 		// Perform a separated split-read aligment. This can recover true SV when BWA fails split-read alignment
@@ -139,6 +133,8 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 				softclip_type = "RIGHT";
 			}
 		}
+
+		return vcf_v;
 	}
 
  	// map by read name (map Of Name)
@@ -185,7 +181,9 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 		ordered_hits.insert(ordered_hits.end(), tmp_hits.begin(), tmp_hits.end());
 	}
 
-	mapq_average = std::accumulate(mapq_vector.begin(), mapq_vector.end(), 0.0) / mapq_vector.size();
+	mapq_average = std::accumulate(mapq_vector.begin(), 
+		mapq_vector.end(), 0.0) / mapq_vector.size();
+
 	std::string first_name;
 	int first_align, first_length;
 	std::string first_strand;
@@ -209,8 +207,8 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 	for (int i= 0; i < ordered_hits.size()-1; i++) {
 		if (ordered_hits.size() == 1) {
 			//Indels present in the alignment
-			if ( checkIndels(chrA, ordered_hits[0].pos, posA, ordered_hits[0].cigar, mapq_average, total_reads, total_assembled, kmer_diversity, vcf_v, bamFile) == 1 ) {
-			
+			if ( checkForIndels(chrA, ordered_hits[0].pos, posA, ordered_hits[0].cigar, 
+				mapq_average, total_reads, total_assembled, kmer_diversity, meanBaseQual, vcf_v, bamFile) == 1 ) {
 			}
 		}
 
@@ -232,21 +230,16 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 			continue;
 		}
 
-		cout << ordered_hits[i].read_name << " " << ordered_hits[i].cigar << " pos:" << ordered_hits[i].pos << " align_pos:" << ordered_hits[i].align_pos  << " align_end:" << ordered_hits[i].align_end << endl;
-		cout << ordered_hits[i+1].read_name << " " << ordered_hits[i+1].cigar << " pos:" << ordered_hits[i+1].pos << " align_pos:" << ordered_hits[i+1].align_pos  << " align_end:" << ordered_hits[i+1].align_end << endl;
-
 		float pvalue_upstream;
 		float pvalue_downstream;
 
 		if (multimapName.count(first_name) < 2) {
 			continue;
 		}
-
 		if (first_name == second_name) {
 			// Deletions and duplications
 			if (first_strand == second_strand ) {
 				if (second_align > first_align + first_length) {
-					
 					int start, end; 
 					int tmpStart, tmpEnd;
 
@@ -255,8 +248,14 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						tmpEnd   = second_align + posB - addNtdPositions;
 					}
 					if (svlength == "small"|| svlength == "medium") {
-						tmpStart = first_align + first_length + posA + addNtdPositions +1;
-						tmpEnd   = second_align + posA + addNtdPositions;
+						if (first_strand == "-") {
+							tmpStart = first_align + first_length + posA+1;
+							tmpEnd   = second_align + posA;
+						}
+						else {
+							tmpStart = first_align + first_length + posA+1;
+							tmpEnd   = second_align + posA;
+						}
 					}
 					if (tmpStart > tmpEnd) {
 						end = tmpStart;
@@ -270,6 +269,13 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					double meanPvalue = 0.00;
 					int size = end-start;
 
+
+					double meanCov = getCoverage(bamFile, chrA, start, end);
+					double alleleBalance = 0.00;
+					if (meanCov > 0) {
+						alleleBalance = total_reads/meanCov;
+					}
+
 					vcf_t call;
 					call.chr =  chrA;
 					call.start = start;
@@ -280,13 +286,17 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					call.assembled = total_assembled;
 					call.covPvalue = meanPvalue;
 					call.discordants = nDiscordants;
-					call.alleleBalance = 0;
+					call.alleleBalance = alleleBalance;
+					call.depth = meanCov;
+
 					call.mapq = mapq_average;
+					call.meanBaseQual = meanBaseQual;
 					call.kdiv = kmer_diversity;
 					call.RDratio = ".";
 					call.RDmad   = ".";
 					call.hasRDsupport = false;
 					call.LOHsupport = ".";
+
 					vcf_v.push_back(call);
 					if ( size >=20 && (suspectedSVtype == "DEL" || suspectedSVtype == "undetermined")) {
 						succeed = 1;
@@ -316,6 +326,7 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						}
 						tmpStart  = start;
 						tmpEnd = end;
+
 						if (tmpStart > tmpEnd) {
 							end = tmpStart;
 							start = tmpEnd;		
@@ -329,6 +340,13 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					int length = end-start;
 					double meanPvalue = 0.00;
 					int size = end-start;
+
+					double meanCov = getCoverage(bamFile, chrA, start, end);
+					double alleleBalance = 0.00;
+					if (meanCov > 0) {
+						alleleBalance = total_reads/meanCov;
+					}
+
 					vcf_t call;
 					call.chr =  chrA;
 					call.start = start;
@@ -339,9 +357,11 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					call.assembled = total_assembled;
 					call.covPvalue = meanPvalue;
 					call.discordants = nDiscordants;
-					call.alleleBalance = 0;
+					call.alleleBalance = alleleBalance;
+					call.depth = meanCov;
 					call.discPvalue = pvalue_discordant;
 					call.mapq = mapq_average;
+					call.meanBaseQual = meanBaseQual;
 					call.kdiv = kmer_diversity;
 					call.RDratio = ".";
 					call.RDmad = ".";
@@ -495,9 +515,7 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 							}
 						}
 					}
-						if (second_align > first_align + first_length) {
-
-						//cout << "tipus 3" << endl;
+					if (second_align > first_align + first_length) {
 
 						if (first_strand == "-" && second_strand == "+") {
 							std::smatch m;
@@ -571,7 +589,7 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						}
 						//continue;
 					}
-						if (second_align > first_align + first_length ) {
+					if (second_align > first_align + first_length ) {
 
 						if (first_strand == "-" && second_strand == "+") {
 							tmpStart = first_align + first_length + posA;
@@ -605,6 +623,12 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 				}
 				int size = end-start;
 
+				double meanCov = getCoverage(bamFile, chrA, start, end);
+				double alleleBalance = 0.00;
+				if (meanCov > 0) {
+					alleleBalance = total_reads/meanCov;
+				}
+
 				vcf_t call;
 				call.chr =  chrA;
 				call.start = start;
@@ -615,9 +639,10 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 				call.assembled = total_assembled;
 				call.covPvalue = 0;
 				call.discordants = nDiscordants;
-				call.alleleBalance = 0;
+				call.alleleBalance = alleleBalance;
 				call.discPvalue = pvalue_discordant;
 				call.mapq = mapq_average;
+				call.meanBaseQual = meanBaseQual;
 				call.kdiv = kmer_diversity;
 				call.RDratio = ".";
 				call.RDmad = ".";
@@ -654,9 +679,6 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 	std::regex soft_regex_R ("^[0-9]+M[0-9]+S$");
 
 	int mapq_average;
-
-	//ofstream printOut;
-
 	// Skipping un-assembled reads 
 	if ( total_assembled == 0 && total_reads > 1) {
 		return 0;
@@ -667,7 +689,8 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 
 		mapq_average = reads[0].mapq;
 		// Check if CIGAR contains MIM or MDM indels
-		if ( checkIndels(chrA, reads[0].pos, posA, reads[0].cigar, mapq_average, total_reads, total_assembled, kmer_diversity, vcf_v, bamFile) == 1 ) {
+		if ( checkForIndels(chrA, reads[0].pos, posA, reads[0].cigar, mapq_average, total_reads, 
+			total_assembled, kmer_diversity, meanBaseQual, vcf_v, bamFile) == 1 ) {
 
 		}
 		// Perform a separated split-read aligment. This can recover true SV when BWA fails split-read alignment
@@ -747,7 +770,8 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 		for (int i= 0; i < ordered_hits.size()-1; i++) {
 			if (ordered_hits.size() == 1) {
 				//Indels present in the alignment
-				if ( checkIndels(chrA, ordered_hits[0].pos, posA, ordered_hits[0].cigar, mapq_average, total_reads, total_assembled, kmer_diversity, vcf_v, bamFile) == 1 ) {
+				if ( checkForIndels(chrA, ordered_hits[0].pos, posA, ordered_hits[0].cigar, 
+					mapq_average, total_reads, total_assembled, kmer_diversity, meanBaseQual, vcf_v, bamFile) == 1 ) {
 				}
 			}
 
@@ -772,7 +796,6 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 				continue;
 			}
 			if (first_name == second_name) {
-
 				// Deletions and duplications
 				if (first_strand == second_strand ) {
 					if (second_align > first_align + first_length) {
@@ -784,8 +807,15 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 							tmpEnd   = second_align + posB - addNtdPositions;
 						}
 						if (svlength == "small"|| svlength == "medium") {
-							tmpStart = first_align + first_length + posA - addNtdPositions +1;
-							tmpEnd   = second_align + posA - addNtdPositions;
+
+							if (first_strand == "-") {
+								tmpStart = first_align + first_length + posA +1;
+								tmpEnd   = second_align + posA;
+							}
+							else {
+								tmpStart = first_align + first_length + posA - addNtdPositions +1;
+								tmpEnd   = second_align + posA - addNtdPositions;
+							}
 						}
 						if (tmpStart > tmpEnd) {
 							end = tmpStart;
@@ -793,11 +823,18 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						}
 						else {
 							start = tmpStart;
-							end   = tmpEnd;
+							end = tmpEnd;
 						}
 						int length =  end-start;
 						double meanPvalue = 0.00;
 						int size = end-start;
+
+						double meanCov = getCoverage(bamFile, chrA, start, end);
+						double alleleBalance = 0.00;
+						if (meanCov > 0) {
+							alleleBalance = total_reads/meanCov;
+						}
+
 						vcf_t call;
 						call.chr =  chrA;
 						call.start = start;
@@ -808,15 +845,17 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						call.assembled = total_assembled;
 						call.covPvalue = meanPvalue;
 						call.discordants = nDiscordants;
-						call.alleleBalance = 0;
+						call.depth = meanCov;					
 						call.mapq = mapq_average;
+						call.meanBaseQual = meanBaseQual;
+						call.alleleBalance = alleleBalance;
 						call.kdiv = kmer_diversity;
 						call.RDratio = ".";
 						call.RDmad   = ".";
 						call.hasRDsupport = false;
 						call.LOHsupport = ".";
 						vcf_v.push_back(call);
-						if ( size >=50 && (suspectedSVtype == "DEL" || suspectedSVtype == "undetermined")) {
+						if ( size >= 50 && (suspectedSVtype == "DEL" || suspectedSVtype == "undetermined")) {
 							succeed = 1;
 						}
 					}
@@ -843,6 +882,13 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						int length =  end-start;
 						double meanPvalue = 0.00;
 						int size = end-start;
+
+						double meanCov = getCoverage(bamFile, chrA, start, end);
+						double alleleBalance = 0.00;
+						if (meanCov > 0) {
+							alleleBalance = total_reads/meanCov;
+						}
+
 						vcf_t call;
 						call.chr =  chrA;
 						call.start = start;
@@ -853,8 +899,10 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 						call.assembled = total_assembled;
 						call.covPvalue = meanPvalue;
 						call.discordants = nDiscordants;
-						call.alleleBalance = 0;
+						call.alleleBalance = alleleBalance;
+						call.depth = meanCov;
 						call.discPvalue = pvalue_discordant;
+						call.meanBaseQual = meanBaseQual;
 						call.mapq = mapq_average;
 						call.kdiv = kmer_diversity;
 						call.RDratio = ".";
@@ -1007,9 +1055,7 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 								}
 							}
 						}
-					        if (second_align > first_align + first_length) {
-
-							//cout << "tipus 3" << endl;
+					    if (second_align > first_align + first_length) {
 
 							if (first_strand == "-" && second_strand == "+") {
 								std::smatch m;
@@ -1083,13 +1129,13 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 							}
 							//continue;
 						}
-					        if (second_align > first_align + first_length ) {
+					    if (second_align > first_align + first_length ) {
 
 							if (first_strand == "-" && second_strand == "+") {
 								tmpStart = first_align + first_length + posA;
 								tmpEnd   = second_align + second_length + posB - addNtdPositions;
 							}
-							// first_strand (+)      second_strand (-)
+							// first_strand (+) second_strand (-)
 							else {
 								std::smatch m;
 								if (std::regex_search (first_cigar, m, soft_regex_L)) {
@@ -1117,6 +1163,12 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					}
 					int size = end-start;
 
+					double meanCov = getCoverage(bamFile, chrA, start, end);
+					double alleleBalance = 0.00;
+					if (meanCov > 0) {
+						alleleBalance = total_reads/meanCov;
+					}
+
 					vcf_t call;
 					call.chr =  chrA;
 					call.start = start;
@@ -1127,9 +1179,11 @@ inline bool comp_sam(const sam_t& lhs, const sam_t& rhs){
 					call.assembled = total_assembled;
 					call.covPvalue = 0;
 					call.discordants = nDiscordants;
-					call.alleleBalance = 0;
+					call.alleleBalance = alleleBalance;
 					call.discPvalue = pvalue_discordant;
 					call.mapq = mapq_average;
+					call.meanBaseQual = meanBaseQual;
+					call.depth = meanCov;
 					call.kdiv = kmer_diversity;
 					call.RDratio = ".";
 					call.RDmad = ".";

@@ -46,8 +46,6 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         analysis_dict["threads"],
     )
 
-    print(cmd)
-    # sys.exit()
 
     if not os.path.isfile(unified_raw_depth) and not os.path.isfile(
         per_base_coverage_file
@@ -64,36 +62,51 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         output = p1.stdout.decode("UTF-8")
         error = p1.stderr.decode("UTF-8")
 
-    if not check_first_line(per_base_coverage_file):
-        per_base_coverage_file_tmp = per_base_coverage_file.replace(".bed", ".tmp.bed")
-        o = open(per_base_coverage_file_tmp, "w")
-        with open (per_base_coverage_file) as f:
-            for line in f:
-                if line.startswith("chr\tstart"):
-                    o.write("#" + line)
-                    continue
-                o.write(line)
-        f.close()
-        o.close()
-        os.remove(per_base_coverage_file)
-        os.rename(per_base_coverage_file_tmp, per_base_coverage_file)
-    sys.exit()
-
+    if os.path.isfile(per_base_coverage_file):
+        if not check_first_line(per_base_coverage_file):
+            per_base_coverage_file_tmp = per_base_coverage_file.replace(".bed", ".tmp.bed")
+            o = open(per_base_coverage_file_tmp, "w")
+            with open (per_base_coverage_file) as f:
+                for line in f:
+                    if line.startswith("chr\tstart"):
+                        o.write("#" + line)
+                        continue
+                    o.write(line)
+            f.close()
+            o.close()
+            os.remove(per_base_coverage_file)
+            os.rename(per_base_coverage_file_tmp, per_base_coverage_file)
+    
     summary_log_name = "summary_metrics.log"
     summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
+
     with open(summary_log) as f:
         for line in f:
             line = line.rstrip("\n")
             if line.startswith("SAMPLE"):
                 continue
             tmp = line.split("\t")
-            sample_name = tmp[0]
+            sample_name = tmp[0].replace(".bam", "")
+            
             for sample in sample_list:
                 if sample.name == sample_name:
+                    gender = "Undefined"
+                    mean_coverage = float(tmp[5])
+                    mean_coverage_X = float(tmp[9])
+                    threshold = 1.5  
+                    ratio = round(mean_coverage / mean_coverage_X,3) if mean_coverage_X > 0 else 0
+                    if ratio >= threshold:
+                        gender = "Male"
+                    elif ratio > 0 and ratio < threshold:
+                        gender = "Female"
                     sample.add("ontarget_reads", int(tmp[2]))
                     sample.add("mean_coverage", float(tmp[5]))
                     sample.add("mean_coverage_X", float(tmp[9]))
+                    sample.add("gender", gender)
+                    msg = f" INFO: {sample.name}\tGender_ratio:{str(ratio)}\tGender:{gender}"
+                    print(msg)
         f.close()
+
     return sample_list, analysis_dict
 
 

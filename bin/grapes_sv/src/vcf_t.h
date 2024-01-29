@@ -17,6 +17,7 @@
 	double covPvalue;
 	int discordants;
 	double alleleBalance;
+	double depth;
 	
 	// Parameters only for discordant pair clusters
 	int cumulativeSize;
@@ -27,12 +28,18 @@
 	std::string RDratio;
 	std::string RDmad;
 	std::string LOHsupport;
+	int meanBaseQual;
 		
 	bool operator<(const vcf_t& x) const {
 		return (chr < x.chr);
 	}
 	inline bool comp_vcf(const vcf_t& lhs, const vcf_t& rhs){
-	  return std::tie(lhs.chr, lhs.start, lhs.end, lhs.precision, lhs.svtype, lhs.breakReads, lhs.assembled, lhs.covPvalue, lhs.discordants, lhs.alleleBalance, lhs.cumulativeSize, lhs.discPvalue, lhs.mapq, lhs.kdiv, lhs.hasRDsupport, lhs.RDratio, lhs.RDmad, lhs.LOHsupport) < std::tie(rhs.chr, rhs.start, rhs.end, rhs.precision, rhs.svtype, rhs.breakReads, rhs.assembled, rhs.covPvalue, rhs.discordants, rhs.alleleBalance, rhs.cumulativeSize, rhs.discPvalue, rhs.mapq, rhs.kdiv, rhs.hasRDsupport, rhs.RDratio, rhs.RDmad, rhs.LOHsupport);
+	  return std::tie(lhs.chr, lhs.start, lhs.end, lhs.precision, lhs.svtype, lhs.breakReads, 
+	  lhs.assembled, lhs.covPvalue, lhs.discordants, lhs.depth, lhs.alleleBalance, lhs.cumulativeSize, 
+	  lhs.discPvalue, lhs.mapq, lhs.kdiv, lhs.hasRDsupport, lhs.RDratio, lhs.RDmad, lhs.LOHsupport, lhs.meanBaseQual) 
+	  < std::tie(rhs.chr, rhs.start, rhs.end, rhs.precision, rhs.svtype, rhs.breakReads, rhs.assembled, 
+	  rhs.covPvalue, rhs.discordants, rhs.depth, rhs.alleleBalance, rhs.cumulativeSize, rhs.discPvalue, rhs.mapq, 
+	  rhs.kdiv, rhs.hasRDsupport, rhs.RDratio, rhs.RDmad, rhs.LOHsupport, rhs.meanBaseQual);
 	}
  };
 

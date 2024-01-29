@@ -19,6 +19,7 @@ from modules.hmm import calculate_positional_mean_variance, CustomHMM
 def custom_hmm_seg(sample_list, analysis_dict):
     """ """
     obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
+
     for sample in sample_list:
 
         chr_dict = load_observations_by_chr(sample.ratio_file)
@@ -33,8 +34,8 @@ def custom_hmm_seg(sample_list, analysis_dict):
         )
         sample.add("segment_extended_file", segment_file_extended)
 
-        if os.path.isfile(segment_file):
-            continue
+        # if os.path.isfile(segment_file):
+        #     continue
 
         o = open(segment_file, "w")
         p = open(segment_file_extended, "w")
@@ -51,6 +52,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
             idx = 0
             unmerged_list = []
             for item in chr_dict[chr]:
+               
                 state = states[idx]
                 phred = phred_scores[idx][int(state)]
                 tmp = item["region"].split("\t")
@@ -65,7 +67,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
                     "state": str(state),
                     "phred": phred
                 }
-                # print(data_dict)
+
                 unmerged_list.append(data_dict)
                 p.write(item["region"] + "\t" + str(state) + "\t" + str(phred)+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
                 idx += 1
@@ -74,7 +76,8 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 out_list = []
                 for val in item:
                     out_list.append(str(item[val]))
-                o.write("\t".join(out_list) + "\n")
+                o.write("\t".join(out_list) + "\n")  
+
         o.close()
         p.close()
 
@@ -111,6 +114,7 @@ def gaussian_hmm(sample_list):
             prob = prob[1].tolist()
             idx = 0
             unmerged_list = []
+
             for item in chr_obs_dict[chr]:
                 state = prob[idx]
                 tmp = item["region"].split("\t")
@@ -202,9 +206,11 @@ def merge_segments(unmerged_list):
                 min_start = int(item["start"])
             if int(item["end"]) > max_end:
                 max_end = int(item["end"])
+
             ratio_list.append(float(item["log2_ratio"]))
             region_list.append(item["region"])
             phred_list.append(item["phred"])
+
         mean_phred = np.mean(phred_list)  
         mean_ratio = round(np.median(ratio_list), 3)
         new_segment = {

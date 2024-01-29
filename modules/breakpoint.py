@@ -3,6 +3,7 @@ import os
 import pysam
 import re
 import numpy as np
+import logging
 from statistics import median
 from Bio import Align
 from modules.bed import BedRecord, load_bed_file
@@ -40,9 +41,10 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, analysis_dict,
             '-t', str(threads),
             '-e', ann_dict["blacklist"]]
 
-    print(' '.join(command))
+    # print(' '.join(command))
     result = subprocess.run(command, capture_output=True, text=True)
-    
+    logging.info(' '.join(command))
+
     tmp_files = {
         "FR": os.path.join(output_dir, f"{sample_name}.FR.bam"),
         "RF": os.path.join(output_dir, f"{sample_name}.RF.bam"),

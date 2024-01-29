@@ -15,23 +15,22 @@
 #include <assert.h>
 
 #include "GenomicRange.h"
-
 #include "kfunc.h"
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string.hpp>
-
 #include "SeqLib/RefGenome.h"
 #include "SeqLib/BamReader.h"
 #include "SeqLib/BWAWrapper.h"
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BFC.h"
-using namespace SeqLib;
 
 #define TWO_BIT_MASK (3)
 #define BITS_PER_BYTE (8)
 #define BIG_ENOUGH (1024)
 
 using namespace std;
+using namespace SeqLib;
+
 float poisson_pmf(int, double);
 
 //std::map<std::string, GenomicRange> chomosomeDict( std::string bamFile) {
@@ -39,52 +38,56 @@ float poisson_pmf(int, double);
 	
 
 
+double inline getAlleleFrequency(const std::string& bamFile, const std::string& chr, int start, int end, int readSupport) {
+    std::string search_area = chr + ":" + std::to_string(start) + "-" + std::to_string(end);
+    int regionLength = end - start + 1; // Adjusted for potential off-by-one error
+
+    BamReader br;
+    if (!br.Open(bamFile)) {
+        // Handle error
+        return -1; // Or throw an exception
+    }
+    BamRecord r;
+
+    int count = 0;
+    GenomicRegion gr(search_area, br.Header());
+	br.SetRegion(gr);
+
+    while (br.GetNextRecord(r)) {
+        count++;
+    }
+
+    double alleleFrequency = 0.00;
+    if (count > 0) {
+        alleleFrequency = count / regionLength; // Cast to double for floating-point division
+    }
+
+	cout << bamFile << " " << count << " " << regionLength << " "<< alleleFrequency << endl;
+    return alleleFrequency;
+}
+	
 
 //######################################### 
- double inline getKmerDiversity(std::vector<std::string>& reads) {
+double inline getKmerDiversity(std::vector<std::string>& reads) {
+    std::vector<double> div_vec;
+    const int defaultKSize = 5;
 
-	std::map <string,string> hash;
-	std::vector<string> kmer_vec;
-	std::vector<double> div_vec;
-	double kdiv;
-	int kSize = 5;
+    for (const auto& read : reads) {
+        std::set<std::string> hash;
+        int kSize = (read.length() < defaultKSize) ? 3 : defaultKSize;
 
-	for (int i = 0; i < reads.size(); i++) {
-		int num_kmers = 0;
-		if (reads[i].length() < 5) {
-			kSize = 3;
-		}
-		
-		for (int j = 0; j < reads[i].length()-kSize; j++) {
-			std::string kmer  = reads[i].substr(j, kSize);
-			hash.insert(std::make_pair( kmer,kmer ));
-		}
+        for (size_t j = 0; j <= read.length() - kSize; ++j) {
+            std::string kmer = read.substr(j, kSize);
+            hash.insert(kmer);
+        }
 
-		num_kmers = hash.size();
-
-		int possible_kmers = reads[i].length()-1;
-		kdiv = num_kmers/(double)possible_kmers;		
-		div_vec.push_back(kdiv);
-	}
-	double kmer_diversity = std::accumulate(div_vec.begin(), div_vec.end(), 0.0) / div_vec.size();
-
-	if (reads.size() == 1) {
-		int num_kmers = 0;
-		if (reads[0].length() < 5) {
-			kSize = 3;
-		}		
-		for (int j = 0; j < reads[0].length()-kSize; j++) {
-			std::string kmer  = reads[0].substr(j, kSize);
-			hash.insert(std::make_pair( kmer,kmer ));
-		}
-
-		num_kmers = hash.size()-1;
-		int possible_kmers = reads[0].length()-1;
-		kdiv = num_kmers/(double)possible_kmers;
-		kmer_diversity = kdiv;	
-	}
-	return kmer_diversity;
- }
+        int num_kmers = hash.size();
+        int possible_kmers = (read.length() >= kSize) ? read.length() - kSize + 1 : 1;
+        double kdiv = static_cast<double>(num_kmers) / possible_kmers;     
+        div_vec.push_back(kdiv);
+    }
+    return std::accumulate(div_vec.begin(), div_vec.end(), 0.0) / div_vec.size();
+}
 
 //######################################### Calculate median
 float inline computeGC ( std::string chr, int start, int end, RefGenome& reference ) {
@@ -357,17 +360,61 @@ bool inline liesOnBlackRegion( std::vector<GenomicRange>& badRegions, std::strin
 		return 1;
 	}
 }
+
+// double getDP(const std::string& bamFile, const std::string& chr, int start, int end) {
+//     BamReader br;
+//     if (!br.Open(bamFile)) {
+//         std::cerr << "Failed to open BAM file." << std::endl;
+//         return 0.0;
+//     }
+
+//     // Define regions
+//     int st_A = std::max(0, start - 10);
+//     int st_B = start + 10;
+//     int ed_A = end - 10;
+//     int ed_B = end + 10;
+
+//     std::vector<std::string> regions = {
+//         chr + ":" + std::to_string(st_A) + "-" + std::to_string(st_B),
+//         chr + ":" + std::to_string(ed_A) + "-" + std::to_string(ed_B)
+//     };
+
+//     int totalDepth = 0;
+//     int regionLength = (st_B - st_A) + (ed_B - ed_A);
+//     for (const auto& region : regions) {
+//         GenomicRegion gr(region, br.Header());
+//         br.SetRegion(gr);
+//         BamRecord r;
+//  		while (br.GetNextRecord(r)) {
+// 	      	totalDepth++;
+// 		}
+//     }
+//     br.Close();
+
+//     // Calculate the average coverage depth
+//     double averageDepth = regionLength > 0 ? static_cast<double>(totalDepth) / regionLength : 0.0;
+//     return averageDepth;
+// }
+
 //#########################################
 double inline getCoverage( std::string& bamFile, string chr, int start, int end) {
 
 	int st_A = start-1;
 	int st_B = start;
-	int ed_A = end-1;
-	int ed_B = end;
+	int ed_A = end;
+	int ed_B = end+1;
+	if (st_A < 0) {
+		st_A = ed_A;
+		st_B = ed_B;
+	}
+
 	std::string upstream_area, downstream_area;
 
 	upstream_area   = chr + ":" + std::to_string(st_A) + "-" + std::to_string(st_B);
 	downstream_area = chr + ":" + std::to_string(ed_A) + "-" + std::to_string(ed_B);
+
+	// cout << upstream_area << endl;
+	// cout << downstream_area << endl;
 
 	BamReader br;
 	br.Open(bamFile);
@@ -378,12 +425,10 @@ double inline getCoverage( std::string& bamFile, string chr, int start, int end)
 	regions.push_back(downstream_area);
 	int count = 0;
 	for (auto& i : regions ) {
-		count = 0;
 		GenomicRegion gr(i, br.Header());
 		br.SetRegion(gr);
 		while (br.GetNextRecord(r)) {
 	      	count++;
-			//if (count > 200) { break; }
 		}
 	}
 	double cov;
@@ -393,6 +438,7 @@ double inline getCoverage( std::string& bamFile, string chr, int start, int end)
 	else {	
 		cov = count/2;
 	}
+	// cout << cov << endl;
 	return cov;		
 }
 //#########################################

@@ -20,6 +20,7 @@
 	int mapq;
 	std::string seq;
 	int seqLen;
+	int mean_qual;
 
 	uint8_t* bitSeq;
 	std::string qual;

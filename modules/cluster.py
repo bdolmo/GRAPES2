@@ -33,7 +33,7 @@ def launch_sample_clustering(sample_list, analysis_dict):
     return sample_list, analysis_dict
 
 
-def cluster_samples(corr_tsv, sample_list, min_correlation=0.90, min_refs=5, max_refs=15):
+def cluster_samples(corr_tsv, sample_list, min_correlation=0.90, min_refs=3, max_refs=15):
     """ """
     n_line = 0
     header = []

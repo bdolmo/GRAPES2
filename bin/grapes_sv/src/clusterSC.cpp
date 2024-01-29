@@ -189,7 +189,9 @@ int getMismatches( std::vector<std::string>& MDtag) {
 	return mismatches;
 }
 
-void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadClusters, std::map<std::string, std::vector<GenomicRange>>&  map_break_ranges, std::map<std::string, std::vector<GenomicRange>>& mapOfRegions, std::string& reference ) {
+void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadClusters, 
+	std::map<std::string, std::vector<GenomicRange>>&  map_break_ranges, 
+	std::map<std::string, std::vector<GenomicRange>>& mapOfRegions, std::string& reference ) {
 
 	// opening bam file	
 	BamReader reader;
@@ -245,12 +247,6 @@ void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadC
 	while (reader.GetNextRecord(r)) {
 		++show_progress;
 		counter++;
-		//float p = (counter / (float) totalSR) * (float) 100;
-		//printProgBar(p);
-
-
-		//cout << r.Position() << "\t" << r.CigarString() << endl;
-
 
 		if (r.ChrID() < 0 || r.ChrID() >= 25 || r.MateChrID()  >= 25 ) { 
 			continue; 
@@ -260,7 +256,6 @@ void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadC
 		}
 
 		if (r.CountBWASecondaryAlignments() > 3) { 
-			//cout << "Salta" << endl;
 			continue; 
 		}
 
@@ -276,9 +271,6 @@ void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadC
 		}
 
 		if (numMismatches > 6) {
-			//cout << numMismatches << "\t"<< "Salta2" << endl;
-
-			//std::cout << "Mismatches: " << numMismatches << "\t" << r.Qname() << "\t"<< r.Position() << "\t" << r.CigarString() << std::endl;
 			continue;
 		}
 
@@ -290,24 +282,9 @@ void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadC
 		// skipping PCR duplicates
 		if (r.DuplicateFlag() == true ) { 
 			//cout << "Salta3" << endl;
-
 			continue; 
 		}
 
-		// BreakReads
-		//if (r.NumSoftClip() > 0 && r.NumSoftClip() < minSoftLength ) { 
-		//	cout << "Salta10\n";
-
-		//	continue; 
-		//}
-		// Min Deleted bases required
-		//if (r.MaxDeletionBases() > 0 && r.MaxDeletionBases() < 20) { 
-			//continue; 
-		//}
-		// Min Inserted bases required
-		//if (r.MaxInsertionBases() > 0 && r.MaxInsertionBases() < 20) { 
-			//continue; 
-		//}
 
 		int chromosome = r.ChrID();
 		string chrom =  myHeader.IDtoName(r.ChrID());
@@ -346,7 +323,7 @@ void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadC
 		int orientation = r.PairOrientation();
 		string Sequence = r.Sequence();
 
-		break_read.seqLen     = Sequence.length();
+		break_read.seqLen = Sequence.length();
 		dna2bit DNA(Sequence);
 		uint8_t* DNA_C = DNA.compressDNA(Sequence);
 
@@ -354,21 +331,21 @@ void clusterSC::extractSC( std::map<std::string, std::vector<sam_t>>& breakReadC
 		break_read.qual      = r.Qualities();
 		break_read.clipped   = r.NumClip();
 		break_read.numMatched= r.NumMatchBases();
+
+		std::string qualities = r.Qualities();
+		int totalQuality = 0;
+		for (char q : qualities) {
+			int score = int(q);
+			totalQuality += score-33 >= 0 ? score-33 : 0;
+		}
+
+		double meanQuality = 0;
+		if (!qualities.empty()) {
+			meanQuality = static_cast<double>(totalQuality) / qualities.length();
+		}
+		break_read.mean_qual = meanQuality;
+
 		std::string tmpCigar = r.CigarString();
-
-		//std::cout << r.Qname() << "\t"<< r.Position() << "\t" << r.CigarString() << "\t" << numMismatches << "\t" << totalSR << "\t" << counter << std::endl;
-		// Attempt to rescue informative split-reads at complex regions
-		/*if (numMismatches > 0 || r.MaxDeletionBases() > 0 || r.MaxInsertionBases() > 0) {
-
-			alignmentStruct alignment =  rescueSplitReads ( r, reference, bamFile, lengthChromo); 
-			break_read.pos       = alignment.refStart;
-			//break_read.align_pos = alignment();
-			//break_read.align_end = r.AlignmentEndPosition();
-			break_read.clipped   = alignment.numClip;
-			break_read.numMatched= alignment.numMatched;
-			break_read.cigar     = alignment.cigar;
-			tmpCigar= alignment.cigar;
-		}*/	
 
 		if (r.NumClip() >= 10 || r.MaxDeletionBases() >= 10 || r.MaxInsertionBases() >= 10) {
 

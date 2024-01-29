@@ -68,7 +68,7 @@ bool debug = false;
 
 // Declaring prototypes
 //vector<int> returnAlignment (const StripedSmithWaterman::Alignment& alignment);
-std::pair<int, int> adjustMinimumBreakReads(float&, int&, int&);
+// std::pair<int, int> adjustMinimumBreakReads(float&, int&, int&);
 void writeRawCalls( std::vector<vcf_t>&, long&, std::string&, std::string&, std::string&, const int&); 
 
 bool is_file_exist(const char *);
@@ -82,7 +82,7 @@ void locateBreakReads(std::string&, std::map<std::string, std::vector<GenomicRan
 void findSmallSV (string&, map<string, vector<sam_t>>&, int &, RefGenome&, std::string, std::string, 
 	std::vector<vcf_t>&, std::string);
 void Analyze (string&, vector<string>&, string, int, string, int, int, string&, std::string, 
-	std::vector<vcf_t>&, std::string, double);
+	std::vector<vcf_t>&, std::string, double, double);
 std::tuple<double, double> reciprocalOverlap (int&, int&, int&, int&);
 std::string fillQualString (std::string&);
 
@@ -119,16 +119,14 @@ Aligner::Aligner(const string& _query, const string& _reference, int _max_mismat
 	max_mismatches = _max_mismatches;
 }
 
-// Inicialitzem el constructor per la classe Aligner
-alignContig::alignContig( std::vector<std::string>& _contigs, std::string& _reference, std::string& _chr, int& _genomicStart, 
-int& _genomicEnd, int& _readLength, std::string& _genome) {
+alignContig::alignContig( std::vector<std::string>& _contigs, std::string& _reference, std::string& _chr, int& _genomicStart, int& _genomicEnd, int& _readLength, std::string& _genome) {
 	contigs        = _contigs;
 	reference      = _reference;
 	chr            = _chr;
 	genomicStart   = _genomicStart;
 	genomicEnd     = _genomicEnd;
-	readLength     = _readLength;resolveLargeSV
-	kSize         = _kSize;
+	readLength     = _readLength;
+	genome         = _genome;
 }
 
 excludeRegion::excludeRegion ( const std::string& _regionsExclude) {
@@ -196,7 +194,7 @@ smallSV::smallSV(std::string& _bamFile, std::string& _reference, int _minOlapBas
 // Inicialitzem el constructor per la classe SV
 SV::SV(vector<sam_t>& _reads, string _chrA, string _chrB, int _posA, int _posB, string _soft_type, int _total_reads, 
 	int _total_assembled, string _bam, string& _ref_sequence, std::string _svlength, int _nDiscordants, 
-	double _pvalue_discordant, double _kmer_diversity) {
+	double _pvalue_discordant, double _kmer_diversity, int _mean_base_qual) {
 	reads             = _reads;
 	chrA              = _chrA;
 	chrB              = _chrB;
@@ -212,6 +210,7 @@ SV::SV(vector<sam_t>& _reads, string _chrA, string _chrB, int _posA, int _posB, 
 	nDiscordants      = _nDiscordants;
 	pvalue_discordant = _pvalue_discordant;
 	kmer_diversity    = _kmer_diversity;
+	meanBaseQual = _mean_base_qual;
 }
 
 
@@ -406,10 +405,6 @@ int main (int argc, char* argv[]) {
 	std::vector<int> readCounts_germinal = clustObj.getGerminalCounts();
 	int binSize = clustObj.getBinSize();
 	float mean_coverage = clustObj.getMeanCoverage();
-	
-	if (wes == "off") {
-	    std::tie(nDiscordants, nBreakReads) = adjustMinimumBreakReads(mean_coverage, nDiscordants, nBreakReads);
-	}
 
 	// Analyzing large SV	
 	if (fl == "on") {
@@ -443,7 +438,6 @@ int main (int argc, char* argv[]) {
 	totalRF = clustObj.getTotalRF();
 	totalFF = clustObj.getTotalFF();
 	totalRR = clustObj.getTotalRR();
-
 	totalSR = clustObj.getTotalSR();
 
 	std::map<std::string, std::vector<GenomicRange>> mapBreakRanges;
@@ -545,66 +539,11 @@ void writeRawCalls( std::vector<vcf_t>& vcf_v, long& genomeSize, std::string& ba
 		if (size < minSize) {
 			continue;
 		}
-		if (l.svtype == "DEL") {
-			numInserts = totalFR;
-		}
-		if (l.svtype == "DUP") {
-			numInserts = totalRF;
-		}		
-		if (l.svtype == "INV") {
-			numInserts = totalFF + totalRR;
-		}
+		vcf_out << l.chr << "\t" << l.start << "\t" << l.end << "\t" << l.precision << ";SVTYPE=" << l.svtype << ";MAPQ=" 
+			<< l.mapq << ";KDIV=" << l.kdiv << ";BREAKREADS=" << l.breakReads << ";ASSEMBLED=" << l.assembled << ";PE=" 
+			<< l.discordants << ";MBQ=" << l.meanBaseQual<<";DP=" << l.depth <<";AF=" << l.alleleBalance <<"\n";
+	}
 
-vcf_out << l.chr << "\t" << l.start << "\t" << l.end << "\t" << l.precision << ";SVTYPE=" << l.svtype << ";MAPQ=" 
-	<< l.mapq << ";KDIV=" << l.kdiv << ";BREAKREADS=" << l.breakReads << ";ASSEMBLED=" << l.assembled << ";PE=" <<
-	l.discordants << ";CSDISC=" << l.cumulativeSize << ";NINS=" << numInserts << ";RDratio=" << l.RDratio << ";RDmad=" 
-	<< l.RDmad << ";RDsupp=" << l.hasRDsupport << ";LOHsupp=" << l.LOHsupport << "\n";
-	}
-}
-
-std::pair<int, int> adjustMinimumBreakReads(float& meanCoverage, int& nDiscordants, int& nBreakReads) {
-
-	if (meanCoverage <= 10) {
-		nDiscordants = 1;
-		nBreakReads  = 1;
-	}
-	if (meanCoverage > 10 && meanCoverage<=20) {
-		nDiscordants = 2;
-		nBreakReads  = 2;
-	}
-	if (meanCoverage > 20 && meanCoverage<=30) {
-		nDiscordants = 3;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 30 && meanCoverage<=40) {
-		nDiscordants = 4;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 40 && meanCoverage<=50) {
-		nDiscordants = 5;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 50 && meanCoverage<=60) {
-		nDiscordants = 6;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 60 && meanCoverage<=70) {
-		nDiscordants = 7;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 70 && meanCoverage<=80) {
-		nDiscordants = 8;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 80 && meanCoverage<=90) {
-		nDiscordants = 9;
-		nBreakReads  = 3;
-	}
-	if (meanCoverage > 100) {
-		nDiscordants = 10;
-		nBreakReads  = 3;
-	}
-	return std::make_pair(nDiscordants, nBreakReads);										
 }
 
 

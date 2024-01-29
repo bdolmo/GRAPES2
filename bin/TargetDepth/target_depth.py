@@ -10,7 +10,7 @@ import sys
 import pysam
 from multiprocessing import Pool
 from pathlib import Path
-
+from collections import defaultdict
 
 def which(program):
     return shutil.which(program)
@@ -19,19 +19,12 @@ def run_cmd(command):
     subprocess.run(command, shell=True, 
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+
 def get_total_reads(bam_file):
     total_reads = 0
-    # print(bam_file)
-
     for stat in pysam.idxstats(bam_file).splitlines():
-        # print(stat)
         fields = stat.split('\t')
         total_reads += int(fields[2])
-        # total_reads += int(fields[2])
-    # for stat in pysam.idxstats(bam_file):
-    #     print("stat", stat)
-    #     fields = stat.split('\t')
-    #     total_reads += int(fields[2])
     return total_reads
 
 
@@ -45,7 +38,7 @@ def process_bam(bam_args):
 
     sample_counts_file = f"{args.outdir}/{bam_name}_counts.bed"
     sample_coverage_file = f"{args.outdir}/{bam_name}_coverage.bed"
-    print(sample_counts_file, sample_coverage_file)
+    # print(sample_counts_file, sample_coverage_file)
 
     # Check for TargetDepth binary execution
     targetDepthExe = os.path.join(dirname, "TargetDepth")
@@ -65,14 +58,55 @@ def process_bam(bam_args):
         run_cmd(cmd)
     print(f"INFO: Finished {bam_file}")
 
-def merge_files(file_list, output_file, header=None):
-    with open(output_file, 'w') as outfile:
-        if header:
-            outfile.write(header + '\n')
-        for fname in file_list:
-            with open(fname) as infile:
-                for line in infile:
-                    outfile.write(line)
+
+def merge_files(file_list, output_file):
+    """ """
+    # Extract sample names from file names
+    sample_names = [os.path.basename(f).replace("_counts.bed", "")\
+        .replace("_coverage.bed", "").replace(".bam", "") for f in file_list]
+
+    # Create header with sample names
+    header = "chr\tstart\tend\texon\tgc\tmap\t" + "\t".join(sample_names)
+    sample_depth_dict = {}
+    sample_depth = []
+
+    for input_file in file_list:
+        sample_name = os.path.basename(input_file).replace("_counts.bed", "").replace(".bam", "")
+
+        if not sample_name in sample_depth_dict:
+            sample_depth_dict[sample_name] = []
+
+        with open (input_file) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if line.startswith("chr\t"):
+                    continue
+                tmp = line.split("\t")
+                depth_data = tmp[-1]
+                sample_depth_dict[sample_name].append(depth_data)
+                # for data in sample_depth_dict:
+                #     sample_depth_dict[sample_name].append(depth_data)
+
+        f.close()
+    
+    baseline_file = file_list[0]
+    o = open(output_file, "w")
+    o.write(header+"\n")
+    idx = 0
+    with open(baseline_file) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            tmp = line.split("\t")
+            list_depth = []
+            for sample in sample_depth_dict:
+                sample_depth = sample_depth_dict[sample][idx]
+                list_depth.append(sample_depth)
+            o.write('\t'.join(tmp[0:6])+ "\t" + '\t'.join(list_depth)+"\n")
+            idx+=1
+    o.close()
+
+    # print(file_list)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Extract read depth metrics from a list of files")
@@ -156,34 +190,27 @@ def main():
                 data = line.strip().split('\t')
                 if line.startswith("SAMPLE\t"):
                     continue
-                # Process each line as required
                 sample = data[0]
                 sample_bam = os.path.join(args.input, sample)
 
                 total_reads = get_total_reads(sample_bam)
 
-
                 reads_on_target = int(data[1])
                 reads_X = int(data[2])
                 mean_coverage = float(data[3])
                 mean_counts = float(data[4])
-                mean_isize = float(data[5])  # Additional field
-                sd_isize = float(data[6])  # Additional field
-                mean_coverage_X = float(data[7])  # Additional field
-                mean_counts_X = float(data[8])  # Additional field
+                mean_isize = float(data[5]) 
+                sd_isize = float(data[6])
+                mean_coverage_X = float(data[7])
+                mean_counts_X = float(data[8]) 
 
-                # Add more fields as per your file format
-                # For example, you might have additional metrics or calculations here
                 roi = (reads_on_target / total_reads) * 100 if total_reads > 0 else 0
 
-                # Write processed data to the new summary file
                 sf.write(f"{sample}\t{total_reads}\t{reads_on_target}\t{reads_X}\t{roi}\t{mean_coverage}\t{mean_counts}\t{mean_isize}\t{sd_isize}\t{mean_coverage_X}\t{mean_counts_X}\n")
-                # Include more fields as necessary
         rf.close()
         sf.close()
         os.remove(summary_file)
         os.rename(new_summary_file, summary_file)
-        # sys.exit()
 
     # Merging temporary files
     count_files = glob.glob(os.path.join(args.outdir, "*_counts.bed"))
@@ -195,47 +222,20 @@ def main():
     # Assuming that the first file in each list contains the header
     # Modify as needed based on your file format
     if args.report_counts:
-        merge_files(count_files, master_counts, header="chr\tstart\tend\texon\tgc\tmap\tSAMPLES")
+        merge_files(count_files, master_counts)
     if args.report_coverage:
-        merge_files(coverage_files, master_coverage, header="chr\tstart\tend\texon\tgc\tmap\tSAMPLES")
+        merge_files(coverage_files, master_coverage)
 
     # Clean up temporary files
-    for f in count_files + coverage_files:
-        os.remove(f)
+    # for f in count_files + coverage_files:
+    #     os.remove(f)
 
-    temp_files = glob.glob(os.path.join(args.outdir, "*.tmp"))
-    for temp_file in temp_files:
-        os.remove(temp_file)
+    # temp_files = glob.glob(os.path.join(args.outdir, "*.tmp"))
+    # for temp_file in temp_files:
+    #     os.remove(temp_file)
 
     # Final message or summary
     print("Processing complete. Results are available in:", args.outdir)
-
-# def analyze_data(counts_file, coverage_file):
-#     """
-#     Example function for additional analysis on the counts and coverage data.
-#     This could involve statistical analyses, data aggregation, etc.
-#     """
-
-#     # Load the data into pandas DataFrames
-#     counts_df = pd.read_csv(counts_file, sep='\t')
-#     coverage_df = pd.read_csv(coverage_file, sep='\t')
-
-#     # Example analysis:
-#     # Calculate mean coverage and counts for each region
-#     counts_mean = counts_df.mean(axis=1)
-#     coverage_mean = coverage_df.mean(axis=1)
-
-#     # Add these as new columns to the DataFrame
-#     counts_df['Mean_Count'] = counts_mean
-#     coverage_df['Mean_Coverage'] = coverage_mean
-
-#     # Save the updated dataframes back to new files
-#     counts_df.to_csv(counts_file.replace('.bed', '.mean_counts.bed'), sep='\t', index=False)
-#     coverage_df.to_csv(coverage_file.replace('.bed', '.mean_coverage.bed'), sep='\t', index=False)
-
-#     # Further analysis can be added here as per your requirements.
-#     # This could include more complex statistical tests, data visualizations,
-    # or exporting data for use in other tools.
 
 
 if __name__ == "__main__":

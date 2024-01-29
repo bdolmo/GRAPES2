@@ -2,6 +2,8 @@ import pandas as pd
 import os
 from pybedtools import BedTool
 import re
+
+
 def merge_bed_files(cnv_file, sv_file, output_file):
 
     """ """
@@ -56,14 +58,12 @@ def merge_bed_files(cnv_file, sv_file, output_file):
     merged_df = pd.DataFrame(columns=intersected_df.columns)
     merged_df = sort_bed_file(merged_df)
 
-
     fields = ["SVTYPE", "REGION", "NREGIONS", "LOG2RATIO", "CN", "SCORE",
-        "MAPQ", "KDIV", "BREAKREADS", "ASSEMBLED", "PE"]
-
+        "MAPQ", "KDIV", "BREAKREADS", "ASSEMBLED", "PE", "MBQ"]
 
     for svtype in svtypes:
         # Check that the SVTYPE is the same in both the CNV and SV files
-        svtype_str = "SVTYPE=" + svtype
+        svtype_str = f"SVTYPE={svtype}"
         temp_df = intersected_df[intersected_df.cnv_info.str.contains(svtype_str) & intersected_df.sv_info.str.contains(svtype_str)]
         
         # Use SV coordinates for the merged file
@@ -93,13 +93,12 @@ def merge_bed_files(cnv_file, sv_file, output_file):
         # Concatenate dataframes
         merged_df = pd.concat([merged_df, temp_df[['chr', 'start', 'end', 'info']]], ignore_index=True)
 
-
-
     # Write the merged BED file
     merged_df[["chr", "start", "end", "info"]].to_csv(output_file, sep='\t', header=False, index=False)
 
 
 def sort_bed_file(df):
+    """ """
     if df.empty:
         return df
     # Replace 'chrX' and 'chrY' with temporary placeholders

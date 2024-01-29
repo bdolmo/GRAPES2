@@ -49,10 +49,10 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
 
         ratio_file_name = f"{sample.name}.ratios.bed"
         ratio_file = str(Path(sample.sample_folder) / ratio_file_name)
+
         sample.add("ratio_file", ratio_file)
-        # if not os.path.isfile(ratio_file):
-        if os.path.isfile(ratio_file):
-            #normalized_depth_tag = f"{sample.name}_normalized_final"
+        if not os.path.isfile(ratio_file):
+
             normalized_depth_tag = f"{sample.name}_normalized_final"
 
             sample_ratio = f"{sample.name}_ratio"
@@ -80,11 +80,8 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             sample.add("mean_norm_cov", mean_normalized_cov)
             sample.add("std_norm_cov", std_normalized_cov)
 
-            # Write dataframe as bed
-            # new_df = new_df.sort_values(by=['chr', 'start'], key=lambda x: natsorted(x))
             new_df.to_csv(ratio_file, sep="\t", mode="w", index=None)
         else:
-            #normalized_depth_tag = f"{sample.name}_normalized_final"
             normalized_depth_tag = f"{sample.name}_normalized_final"
 
             sample_ratio = f"{sample.name}_ratio"
@@ -100,9 +97,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
   
             sample.add("mean_norm_cov", mean_normalized_cov)
             sample.add("std_norm_cov", std_normalized_cov)
-
             df_list.append(new_df)
-        # print(sample.name, sample.mean_norm_cov, sample.std_norm_cov)
 
     result = reduce(
         lambda df1, df2: pd.merge(
@@ -110,10 +105,9 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
         ),
         df_list,
     )
-    # result = result.sort_values(by=['chr', 'start'], key=lambda x: natsorted(x))
-
     result.to_csv(all_ratios, sep="\t", mode="w", index=None)
     analysis_dict["all_ratios"] = all_ratios
+
     return sample_list, analysis_dict
 
 
@@ -125,13 +119,16 @@ def do_ratio_ref(row, baseline, sample, log2=True):
     median_baseline = np.median(a)
     if median_baseline == 0:
         median_baseline = 0.01
-    ratio = row[sample] / float(median_baseline)
 
+    if math.isnan(row[sample]):
+        row[sample] = 0
+
+    ratio = row[sample] / float(median_baseline)
     if ratio == 0:
         ratio = 0.01
-
+    
     log2_ratio = round(math.log2(ratio), 3)
     if log2_ratio < -3:
         log2_ratio = -3
-
+    
     return log2_ratio

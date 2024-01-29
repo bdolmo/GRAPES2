@@ -19,6 +19,7 @@
 #include "varCall.h"
 #include "smallSV.h"
 #include "Trimmer.h"
+#include "ssw_cpp.h"
 
 // Seqlib headers
 #include "SeqLib/RefGenome.h"
@@ -27,23 +28,68 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BFC.h"
 #include "SeqLib/FermiAssembler.h"
-
-
 #include <boost/progress.hpp>
-// #include "bindings/cpp/WFAligner.hpp"
 
-// using namespace wfa;
 using namespace std;
 using namespace SeqLib;
 
 
-/*int getNumClusters ( map<string, vector<sam_t>>& breakReadClusters ) {
+int getSupportingContigReads(std::vector<std::string>&reads, std::string& contig) {
 
-	vector<GenomicRange> breakClusters = binarySearch( breakReadLocations[chr], breakReadLocations[chr].size(), chr, start, end );
+	int supportingReads = 0;
+	for(auto& read_seq: reads) {
 
-}*/
+		// Declares a default Aligner
+		StripedSmithWaterman::Aligner ssw_aligner;
 
-void Analyze ( string& bamFile, vector<string>& contigs, string& chr, int& start, string& sctype, int& totalReads, int& totalAssembled, string& refSequence, std::vector<vcf_t>& vcf_v, std::string& wes, double& kmerDiversity ) {
+		// Declares a default filter
+		StripedSmithWaterman::Filter filter;
+
+		// Declares an alignment that stores the result
+		StripedSmithWaterman::Alignment alignment;
+
+		ssw_aligner.Align(read_seq.c_str(), contig.c_str(), contig.length(), filter, &alignment);
+		int mismatches = alignment.mismatches;
+		int q_begin = alignment.query_begin;
+		int q_end = alignment.query_end;
+		int q_size = q_end-q_begin;
+
+		float minQuerySize = read_seq.length()*0.9;
+		if (q_size >= minQuerySize && mismatches < 3) {
+			supportingReads++;
+		}
+		else {
+
+			// Declares a default Aligner
+			StripedSmithWaterman::Aligner ssw_aligner;
+
+			// Declares a default filter
+			StripedSmithWaterman::Filter filter;
+
+			// Declares an alignment that stores the result
+			StripedSmithWaterman::Alignment alignment;
+
+			std::string revcomp_seq = revComp(read_seq);
+
+			ssw_aligner.Align(revcomp_seq.c_str(), contig.c_str(), contig.length(), filter, &alignment);
+			int mismatches = alignment.mismatches;
+			int q_begin = alignment.query_begin;
+			int q_end = alignment.query_end;
+			int q_size = q_end-q_begin;
+
+			float minQuerySize = read_seq.length()*0.9;
+			if (q_size >= minQuerySize && mismatches < 3) {
+				supportingReads++;
+			}
+
+		}
+	}
+	return supportingReads;
+}
+
+
+void Analyze ( string& bamFile, vector<string>& contigs, string& chr, int& start, string& sctype, 
+	int& totalReads, int& totalAssembled, string& refSequence, std::vector<vcf_t>& vcf_v, std::string& wes, double&kmerDiversity, double& meanMapQual ) {
 
 	std::vector<sam_t> v_sam;
 
@@ -98,13 +144,10 @@ void Analyze ( string& bamFile, vector<string>& contigs, string& chr, int& start
 		 }
 	 }
 
-	 SV call(v_sam, chr, chr, start, start, sctype, totalReads, totalAssembled, bamFile, refSequence, "small", 0, 0.00, kmerDiversity);
+	 SV call(v_sam, chr, chr, start, start, sctype, totalReads, totalAssembled, bamFile, refSequence, "small", 0, 0.00, kmerDiversity, meanMapQual);
 	 std::string undetermined = "undetermined";
 	 if (call.classify(vcf_v, undetermined) == 1) {
 
-	 }
-	 else   {
-		//cout << "uncalled" << chr << "\t" << start << "\t"  << "\t" << totalReads<< "\tTOTAL_ASSEMBLED:" <<totalAssembled << "\n" << "\n";
 	 }
 }
 
@@ -112,7 +155,6 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 
    // Goal here is to jointly consider all brek-reads that fall inside +/-500 bp from each soft-clipping position
    // as assembly candidates.
-
 
    int N = breakReadClusters.size();
    int count = 0;
@@ -130,38 +172,35 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
    BamHeader myHeader;
    myHeader = reader.Header();
 
-   std::ofstream Fastq;
-   Fastq.open(fastq.c_str(), std::ofstream::app);
-
    std::multimap<std::string, std::string> visitedBreak;
 
    std::string logF = outdir + "/" + "grapes.log";
    std::ofstream logFile;
+
    logFile.open(logF, std::ofstream::app);
-   int kmerSize = readLength*0.20;
-   kmerSize = 20;
-   cout << " INFO: kmer-size for assemblying: " << kmerSize << endl;
+   int minTrimSize = readLength*0.20;
 
-   std::multimap<std::string, std::string> breaksInWindows;
+	std::map<std::string, std::vector<std::string>> breaksInWindows;
 
-   for (auto& breakC : breakReadClusters) {
-	    vector<string> tmpCoord = split ( breakC.first, '\t');
-	    string chr = tmpCoord[0];
+	for (auto& breakC : breakReadClusters) {
+		vector<string> tmpCoord = split(breakC.first, '\t');
+		string chr = tmpCoord[0];
 
-	    int pos   = std::stoi(tmpCoord[1]);		
-	    int start = pos - 250;
-	    int end   = pos + 250;
+		int pos = std::stoi(tmpCoord[1]);		
+		int start = pos - 250;
+		int end = pos + 250;
 
-	    vector<GenomicRange> breakClusters = binarySearch( breakReadLocations[chr], breakReadLocations[chr].size(), chr, start, end );
+		vector<GenomicRange> breakClusters = binarySearch(breakReadLocations[chr], 
+			breakReadLocations[chr].size(), chr, start, end);
 
-   	    for (auto& c: breakClusters) {
+		for (auto& c : breakClusters) {
 			std::string mkey = chr + "\t" + std::to_string(c.start) + "\t" + c.softclip_type;
 			visitedBreak.insert(std::pair<std::string, std::string>(mkey, mkey));
 			if (visitedBreak.count(mkey) <= 1) {
-				breaksInWindows.insert(std::pair<std::string, std::string>(breakC.first, mkey));
+				breaksInWindows[breakC.first].push_back(mkey);
 			}
-	   }
-    }
+		}
+	}
 
 
   	boost::progress_display show_progress( breaksInWindows.size() );
@@ -176,7 +215,7 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 	
 		#pragma omp for schedule(dynamic, 1)
 
-   		 for(int i = 0; i < breaksInWindows.size(); i++) {
+   		for (int i = 0; i < breaksInWindows.size(); i++) {
 
 			auto breakC = breaksInWindows.begin();
        		advance(breakC, i);
@@ -185,58 +224,66 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 			string chr = tmpCoord[0];
 			string coordinates = tmpCoord[0]+"_"+tmpCoord[1]+"_"+tmpCoord[2];
 
-			int pos   = std::stoi(tmpCoord[1]);		
+			int pos = std::stoi(tmpCoord[1]);		
 			int start = pos - 500;
-			int end   = pos + 500;
+			int end = pos + 500;
 
 			int totalReads;
 			int totalReadsAssembled;
+			int meanMapQual;
+			int meanBaseQual;
+
+			std::vector<std::string> breakReadVec;			
+			std::vector<int> mapqQualities;
+			std::vector<int> baseQualities;
 			std::vector<string> contigsJoint;
-			double kmerDiversity;
+			std::map<std::string, std::string> seenReadsMap;
 
-			std::vector<std::string> breakReadVec;
-			vector<string> tmpClust = split ( breakC->second, '\t');
-			std::string mkey = tmpClust[0] + "\t" + tmpClust[1] + "\t" + tmpClust[2];
-			std::map<std::string, std::vector<sam_t>>::iterator it1 = breakReadClusters.find(mkey);
-			int meanMapQual;	
+			for (auto& subclusterKey: breakC->second) {
 
-			if (debug) {
-				cout << "mkey " << mkey << endl;
-			}
+				vector<string> tmpClust = split( subclusterKey, '\t');			
+				std::string mkey = tmpClust[0] + "\t" + tmpClust[1] + "\t" + tmpClust[2];
+				auto it1 = breakReadClusters.find(mkey);
 
-			if(it1 != breakReadClusters.end()) {
-				std::vector<int> mapqQualities;
+				if (it1 != breakReadClusters.end()) {
+					for (auto& read: it1->second) {
 
-				for (auto& read: it1->second) {
-					string seq  = DNA.decompressDNA(read.bitSeq, read.seqLen);
+						if (seenReadsMap.find(read.read_name) != seenReadsMap.end()) {
+							continue;
+						}
 
-					mapqQualities.push_back(read.mapq);
-					Trimmer trim1(seq, read.qual);
-					string trimmedseq = trim1.trim();
+						string seq  = DNA.decompressDNA(read.bitSeq, read.seqLen);
+						mapqQualities.push_back(read.mapq);
+						baseQualities.push_back(read.mean_qual);
 
-					if ( trimmedseq.length() >= kmerSize ) {
-						breakReadVec.push_back(trimmedseq);
-					}							
+						// Perform a naive 5-end trimming
+						Trimmer trim1(seq, read.qual);
+						string trimmedseq = trim1.trim();
+
+						if (trimmedseq.length() >= minTrimSize) {
+							breakReadVec.push_back(trimmedseq);
+						}
+						seenReadsMap[read.read_name] = read.read_name;
+					}
 				}
+			}
+			if (breakReadVec.size() > 0) {
 
-				meanMapQual  = accumulate( mapqQualities.begin(), mapqQualities.end(), 0.0)/mapqQualities.size(); 
-				// Assembler A(breakReadVec, minOlapBases, 2, 2, kmerSize);
-				// std::vector<std::string> contigs = A.ungappedGreedy();
-				// int numAssembledA = A.getNumAssembled();
+				meanMapQual = accumulate( mapqQualities.begin(), 
+					mapqQualities.end(), 0.0)/mapqQualities.size();
 
+				meanBaseQual = accumulate(baseQualities.begin(),
+					baseQualities.end(), 0.0)/baseQualities.size();
+				// cout << "Mean Base Qual " << " " << meanBaseQual << endl;
 
-				// std::vector<std::string> contigs;
-				int numAssembledA = 10;
-
+				int numAssembledA = 0;
 				int cidx = 0;
 				UnalignedSequenceVector unalignVect;
 				for (auto&candidateRead : breakReadVec) {
-
 					std::string Qual= "";
 					for (auto&ntd : candidateRead) {
 						Qual+= "E";
 					}
-
 					UnalignedSequence unSeq(std::to_string(cidx), candidateRead, Qual);
 					unalignVect.push_back(unSeq);
 					cidx++;
@@ -250,25 +297,18 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 				// // peform the assembly
 				f.PerformAssembly();
 				std::vector<std::string> contigs = f.GetContigs();
+				contigsJoint = contigs;
 
 				f.ClearReads();
 				f.ClearContigs();
-				// int numAssembledA = 10;
 
-				//cout << numAssembledA << endl;
 				totalReads = breakReadVec.size();
-				totalReadsAssembled = numAssembledA;
-				kmerDiversity = getKmerDiversity(contigs);
-				if (totalReadsAssembled > 0) {
-					for (auto& seq : contigs ) {
-						contigsJoint.push_back(seq);
-					}
-				}
 			}
 			std::vector<sam_t> samAlignments;
-			std::vector<vcf_t>smallSV;
-			if (contigsJoint.size() > 0) {
+			std::vector<vcf_t> smallSV;
 
+			if (contigsJoint.size() > 0) {
+				
 				RefGenome ref;
  				ref.LoadIndex(reference);
 
@@ -276,7 +316,6 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 
 				start = start >= 0 ? start : 0;
 				end = end <= lengthChrom ? end : lengthChrom;
-
 				std::string localReference = ref.QueryRegion(chr, start, end);
 
 				BamRecord r;
@@ -289,26 +328,26 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 				BWAWrapper bwamem;
 				UnalignedSequenceVector usv = {{chr, localReference}};
 				bwamem.ConstructIndex(usv);
-
 				bwamem.SetAScore(2);
-				bwamem.SetGapOpen(12);
+				bwamem.SetGapOpen(8);
 				bwamem.SetGapExtension(0.5);			
-				bwamem.SetBandwidth(1000);	
-				bwamem.SetMismatchPenalty(8);		
+				bwamem.SetBandwidth(2000);	
+				bwamem.SetMismatchPenalty(5);		
 				bwamem.SetReseedTrigger(1.5);
 				bwamem.Set3primeClippingPenalty(5);
 				bwamem.Set5primeClippingPenalty(5);
 
 				int idxContig = 0;
-				for (auto&contig : contigsJoint) {
 
+				double kmerDiversity = 0.0;
+				if (contigsJoint.size() > 0) {
+					kmerDiversity = getKmerDiversity(contigsJoint);
+				}
+				for (auto& contig : contigsJoint) {
+					int totalReadsAssembled = getSupportingContigReads(breakReadVec, contig);
 					string Qname = coordinates + "_" + std::to_string(idxContig);
-					cout << "Qname: " << Qname << endl;
 					bwamem.AlignSequence(contig, Qname, results, hardclip, secondary_cutoff, secondary_cap);
 					for (auto& i : results) {
-
-						cout << i << endl;
-
 						sam_t sam_aln;
 						sam_aln.read_name = i.Qname();
 						sam_aln.chr       = i.ChrName();
@@ -317,14 +356,17 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 						sam_aln.align_end = i.AlignmentEndPosition();
 						sam_aln.cigar     = i.CigarString();
 						sam_aln.strand    = i.ReverseFlag() == true ? '-' : '+';
-						sam_aln.order     = i.FirstFlag()   == true ? '1' : '2';
-						int mapq_ascii     = i.MapQuality();
+						sam_aln.order     = i.FirstFlag() == true ? '1' : '2';
+						int mapq_ascii    = i.MapQuality();
 						sam_aln.mapq      = mapq_ascii;
 						sam_aln.seq       = i.Sequence();
+						sam_aln.mean_qual = meanBaseQual;
 						samAlignments.push_back(sam_aln);
 					}
-					SV call(samAlignments, chr, chr, start, end, "undef",  10, 10, bamFile, localReference, 
-						"small",  0, 1e-5, kmerDiversity);
+
+					SV call(samAlignments, chr, chr, start, end, "undef",  
+						totalReads, totalReadsAssembled, bamFile, localReference, 
+						"small",  0, 1e-5, kmerDiversity, meanBaseQual);
 					string svtype = "undetermined";
 
 					vector<vcf_t> smallSV;
@@ -333,142 +375,18 @@ void smallSV::callSmallSV (map<string, vector<sam_t>>& breakReadClusters, std::m
 						vcf_v_private.push_back(b);
 					}
 					idxContig++;
-				}
-				
-				// alignContig aln (contigsJoint, localReference, chr, start, end, readLength, reference);
-				// smallSV = aln.Align(totalReads, totalReadsAssembled, kmerDiversity, meanMapQual);
-				// for (auto& b : smallSV) {
-				// 	vcf_v_private.push_back(b);
-				// }
+				}		
 			}
 			#pragma omp critical 
 			{
 				++show_progress;
 			}
-			//}*/
-				// Recovering additional SVs using bwamem
-				if (smallSV.size() == 0) {
-					int num = 0;
-					for (auto& seq : contigsJoint ) {
-						#pragma omp critical
-						{
-							Fastq << "@r" << num << "_" << chr << "_" << pos << "_" << tmpClust[2] << "_" << totalReads << "_" << totalReadsAssembled << "_" << kmerDiversity << endl;
-							Fastq << seq << endl;
-							Fastq << "+" << endl;
-							Fastq << fillQualString(seq) << endl;
-						}
-						++num;
-					}
-				}
-				contigsJoint.clear();
-				totalReadsAssembled = 0;
-				totalReads = 0;
-			 //}*/
-		//}
-
-	}
+			contigsJoint.clear();
+			totalReadsAssembled = 0;
+			totalReads = 0;
+		}
 	#pragma omp critical
 		vcf_v.insert(vcf_v.end(), vcf_v_private.begin(), vcf_v_private.end());
     }
-   	//cout << vcf_v.size() << endl;
 }
-
-void smallSV::callSmallSvExome (map<string, vector<sam_t>>& breakReadClusters, std::map<std::string, std::vector<GenomicRange>>& breakReadLocations, std::string& fastq, std::vector<vcf_t>& vcf_v, std::string& wes, std::string& outdir) {
-
-   // Goal here is to jointly consider all brek-reads that fall inside +/-500 bp from each soft-clipping position
-   // as assembly candidates.
-
-   int N = breakReadClusters.size();
-   int count = 0;
-	
-   string dummy = "INIT";
-   dna2bit DNA(dummy);
-
-   RefGenome ref;
-   ref.LoadIndex(reference);
-
-   std::ofstream Fastq;
-   Fastq.open(fastq.c_str(), std::ofstream::app);
-
-   std::multimap<std::string, std::string> visitedBreak;
-
-   std::string logF = outdir + "/" + "grapes.log";
-   std::ofstream logFile;
-   logFile.open(logF, std::ofstream::app);
-
-   for (auto& breakC : breakReadClusters) {
-
-	    vector<string> tmpCoord = split ( breakC.first, '\t');
-	    string chr = tmpCoord[0];
-
-	    int pos   = std::stoi(tmpCoord[1]);		
-	    int start = pos - 500;
-	    int end   = pos + 500;
-
-	    vector<GenomicRange> breakClusters = binarySearch( breakReadLocations[chr], breakReadLocations[chr].size(), chr, start, end );
-
-	    int totalReads;
-	    int totalReadsAssembled;
-        std::vector<string> contigsJoint;
-	    double kmerDiversity;
-
-	    std::vector<std::string> leftCluster;
-	    std::vector<std::string> rightCluster;
-
-	    for (auto& read : breakC.second) {
-
-		  string Seq = DNA.decompressDNA(read.bitSeq, read.seqLen);
-
-		  // Trimming low quality bases
-		  Trimmer trim1(Seq, read.qual);
-		  Seq = trim1.trim();
-		  //int total_trimmed = trim1.getTotalTrimmed();
-
-		  if (read.sctype == "LEFT" || read.sctype == "DEL" || read.sctype == "INS") {
-			leftCluster.push_back(Seq);
-		  }
-		  if (read.sctype == "RIGHT") {
-			rightCluster.push_back(Seq);
-		  }
-	    }
-
-	    int totalAssembledLeft;
-	    int totalAssembledRight;
-	    vector<string> contigsLeft;
-	    vector<string> contigsRight;
-
-	    chr = returnChromLexicoGraphical ( chr );
-	    string refSequence = ref.QueryRegion(chr, start, end);
-
-    	if (leftCluster.size() > 0) {
-
-			Assembler assemblyLeft(leftCluster, minOlapBases, 3, 2, 20);
-			vector<string> contigsLeft = assemblyLeft.ungappedGreedy();
-
-			totalAssembledLeft   = assemblyLeft.getNumAssembled();
-
-			int totalReadsLeft   = leftCluster.size();
-			double kmerDiversity = getKmerDiversity(contigsLeft);
-			int num = 0;
-			string softClass = "LEFT";
-			Analyze (bamFile, contigsLeft, chr, pos, softClass , totalReadsLeft, totalAssembledLeft, refSequence, vcf_v, wes, kmerDiversity);
-	    }
-		if (rightCluster.size() > 0) {
-
-			Assembler assemblyRight(rightCluster, minOlapBases, 3, 2, 20);
-			vector<string> contigsRight = assemblyRight.ungappedGreedy();
-
-			totalAssembledRight = assemblyRight.getNumAssembled();
-
-			int totalReadsRight  = rightCluster.size();
-			double kmerDiversity = getKmerDiversity(contigsRight);
-			int num = 0;
-			string softClass = "RIGHT";
-			Analyze (bamFile, contigsRight, chr, pos,softClass , totalReadsRight, totalAssembledRight, refSequence, vcf_v, wes, kmerDiversity);
-		}
-	    leftCluster.clear();
-	    rightCluster.clear();
-     }
-}
-
 

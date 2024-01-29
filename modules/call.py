@@ -33,7 +33,7 @@ def export_cnv_calls(sample_list, analysis_dict):
         if sample.analyzable == "False":
             continue
 
-        tags = ['SVTYPE', 'REGION', 'NREGIONS', 'LOG2RATIO', 'CN', 'SCORE']
+        tags = ['SVTYPE', 'REGION', 'NREGIONS', 'LOG2RATIO', 'CN', 'CNV_SCORE']
 
         original = sample.cnv_calls_bed
         target_name = f'{sample.name}.GRAPES2.cnv.bed'
@@ -51,7 +51,7 @@ def export_cnv_calls(sample_list, analysis_dict):
                     "NREGIONS": tmp[4],
                     "LOG2RATIO": tmp[5],
                     "CN": tmp[6],
-                    "SCORE": tmp[7]
+                    "CNV_SCORE": tmp[7]
                 }
                 info_str = "IMPRECISE;" + ";".join(f"{k}={v}" for k, v in info.items())
                 coordinates = f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}"
@@ -112,8 +112,6 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
     for sample in sample_list:
 
-        # if sample.name != "CA17339":
-        #     continue
         if sample.analyzable == "False":
             continue
         msg = f" INFO: Calling single-exon CNVs on sample {sample.name}"
@@ -181,11 +179,12 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 samples_cov_dict[s[0]] = control_coverage
                 background_cov_list.append(control_coverage)
 
-            row_dict = {"chr": tmp_line[0], 
-                        "start": tmp_line[1], 
-                        "end": tmp_line[2], 
-                        "info": tmp_line[3]
-                        }
+            row_dict = {
+                "chr": tmp_line[0], 
+                "start": tmp_line[1], 
+                "end": tmp_line[2], 
+                "info": tmp_line[3]
+            }
 
             mean_bg_coverage = np.median(background_cov_list)
             if mean_bg_coverage == 0:
@@ -246,18 +245,12 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
             z_score = calculate_z_score(candidate_cnvs[cnv_call]["case_median_ratio"], 
                 candidate_cnvs[cnv_call]["control_ratios"])
-            print(sample.name, cnv_call, "s2n_case:",s2n_case, "s2n_controls:", s2n_controls, "case_ratio:", signal_ratio, "median_cov_case:", median_cov_case,"median_cov_controls:", median_cov_controls, "zscore:", z_score)
+            # print(sample.name, cnv_call, "s2n_case:",s2n_case, "s2n_controls:", s2n_controls, "case_ratio:", signal_ratio, "median_cov_case:", median_cov_case,"median_cov_controls:", median_cov_controls, "zscore:", z_score)
 
             if signal_ratio <= upper_del_threshold or signal_ratio >= dup_threshold:
                 if s2n_case >= 5 and s2n_controls >= 5 and abs(z_score) > 2:
                     o.write(cnv_call+"\n")
         o.close()
-
-        # if sample.name == "CA17392":
-        #     sys.exit()
-
-
-    # sys.exit()
 
 
 def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold):
@@ -337,12 +330,13 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                             p.write(outline)
 
                             # Gene is assumed to be located at offset 3
-                            gene = regions
-                            tmp_regions = regions.split(";")
+                            gene = regions                          
+                            tmp_regions = re.split('[, ;]', regions)
+
                             if len(tmp_regions) > 1:
                                 gene = tmp_regions[-1]
 
-                            plot_gene(sample.name, sample_list, gene, analysis_dict)
+                            gene_plot, sample = plot_gene(sample.name, sample_list, gene, analysis_dict)
 
                         else:
                             coordinate = f"{chr}\t{start}\t{end}"
@@ -432,7 +426,7 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
     dup_threshold = float(dup_threshold)
 
     for sample in sample_list:
-
+        
         if sample.analyzable == "False":
             continue
 

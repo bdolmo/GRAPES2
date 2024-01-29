@@ -112,17 +112,18 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
 
     controls = []
     output_dir = ""
+    sample_object = ""
     for s in sample_list:
         if s.name != sample:
             name_tag = f"{s.name}_ratio"
             controls.append(name_tag)
         else:
             output_dir = s.sample_folder
+            sample_object = s
 
     gene_plot_name = f"{sample}.{gene}.png"
     gene_plot = str(Path(output_dir) / gene_plot_name)
-    # if os.path.isfile(gene_plot):
-    #     return
+
     df = pd.read_csv(analysis_dict["all_ratios"], sep="\t")
     df = df[df["exon"].str.endswith(gene)]
     df_dict = df.to_dict(orient="records")
@@ -133,80 +134,87 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
     sample_ratios = []
     sample_exons = []
 
-    for row in df_dict:
-        sample_exons.append(row["exon"])
+    for idx,row in enumerate(df_dict):
+        sample_exons.append(row["exon"]+";"+str(row["start"]))
         sample_ratios.append(float(row[sample_tag]))
-
         for control in controls:
             controls_ratios.append(float(row[control]))
-            exons_controls.append(row["exon"])
+            exons_controls.append(row["exon"]+";"+str(row["start"]))
+
     plot_dict = {"controls": controls_ratios, "exons": exons_controls}
+    if not "per_exon" in sample_object.analysis_json:
+        sample_object.analysis_json["per_exon"] = defaultdict(dict)
+
     sample_dict = dict()
     sample_dict[sample_tag] = sample_ratios
     sample_dict["exons"] = sample_exons
     sample_df = pd.DataFrame.from_dict(sample_dict)
     max_ratio = max(sample_ratios) + 0.1
-    # min_ratio = min(sample_ratios) - 0.1
-    # if max_ratio < 0.5:
-    #     max_ratio = 0.5
 
-    max_ratio = 1.2
-    min_ratio = -1.2
+    max_ratio = -1.2
+    min_ratio = -3.5
 
-    if min_ratio > -1:
-        min_ratio = -1
+    # if min_ratio > -1:
+    #     min_ratio = -1
     with sns.axes_style("dark"):
         fig, axes = plt.subplots(1, figsize=(22, 7))
+
+        # DataFrame for boxplot
         plot_df = pd.DataFrame.from_dict(plot_dict)
+        sample_df = pd.DataFrame.from_dict(sample_dict)
+
+        # Merge and sort DataFrame
+        combined_df = plot_df.merge(sample_df, on='exons')
+        combined_df.sort_values(by='exons', inplace=True)
+
+        sample_object.analysis_json["per_exon"][gene] = combined_df.to_json()
+
+        # Plotting
         sns.set(font_scale=1.5)
         sns.set_style({'axes.linewidth': 0.5})
-        ratio_tag = f"{sample}_ratio"
+        fig, ax = plt.subplots(1, figsize=(22, 7))
 
+        # Boxplot
+        sns.boxplot(x="exons", y="controls", data=combined_df, showfliers=False, color="#d4ebf2", ax=ax)
 
-        num_labels = len(axes.get_xticklabels())
-        if num_labels > 50:
-            fontsize = 7
-        elif num_labels > 30:
-            fontsize = 10
-        else:
-            fontsize = 12
+        # Determine unique exons for x-axis positions
+        unique_exons = combined_df['exons'].unique()
 
-        axes = sns.boxplot(
-            x="exons", y="controls", data=plot_df, showfliers=False, color="#d4ebf2"
-        ).set_title(gene)
-        # axes = sns.scatterplot(
-        #     x="exons", y=sample_tag, data=sample_df, s=140, color="red"
-        # )
+        # Scatter plot for red and black points
+        red_points = combined_df[combined_df[sample_tag] < -0.621]
+        black_points = combined_df[(combined_df[sample_tag] >= -0.621) & (combined_df[sample_tag] <= 0.433)]
 
-        red_points = sample_df[sample_df[sample_tag] < -0.621]
-        black_points = sample_df[(sample_df[sample_tag] >= -0.621) & (sample_df[sample_tag] <= 0.433)]
-        
-        axes  = sns.scatterplot(
-            x="exons", y=sample_tag, data=red_points, s=140, color="red"
-        )
-        axes = sns.scatterplot(
-            x="exons", y=sample_tag, data=black_points, s=140, color="black"
-        )
+        # Plot each point separately to align with the corresponding box
+        for exon in unique_exons:
+            # Red points
+            if exon in red_points['exons'].values:
+                y_value = red_points[red_points['exons'] == exon][sample_tag].values[0]
+                ax.scatter(unique_exons.tolist().index(exon), y_value, color='red', s=140)
+            
+            # Black points
+            if exon in black_points['exons'].values:
+                y_value = black_points[black_points['exons'] == exon][sample_tag].values[0]
+                ax.scatter(unique_exons.tolist().index(exon), y_value, color='black', s=140)
 
+        ax.axhline(0.433, color="blue")
+        ax.axhline(-0.621, color="red")
+        ax.set_xticklabels(unique_exons, rotation=90)
+        ax.set(ylim=(-3.5, 1.2))
+        ax.set(ylabel="log2 ratio")
 
-        axes.axhline(0.433, color="blue")
-        axes.axhline(-0.621, color="red")
-        axes.set_xticklabels(axes.get_xticklabels(), rotation=90, fontsize=fontsize)
-        axes.set(ylim=(min_ratio, max_ratio))
-        axes.set(ylabel="log2 ratio")
-        axes.tick_params(bottom=True, left=True)
-
-        for tick in axes.get_xticklabels():
+        for tick in ax.get_xticklabels():
             tick.set_color('black')
-        for tick in axes.get_yticklabels():
+        for tick in ax.get_yticklabels():
             tick.set_color('black')
 
         fig.savefig(gene_plot, bbox_inches="tight")
         plt.close()
 
+        return gene_plot, sample_object
+        
 
 def plot_single_exon_cnv(df, sample, variant_title):
-
+    """ """
     fig = plt.figure(figsize=(10,6))
     
     # Get the columns for the samples based on their position in the dataframe
@@ -228,10 +236,9 @@ def plot_single_exon_cnv(df, sample, variant_title):
     ax2 = plt.twinx()
     ax2.set_ylim(-2, 1.3)  # Set the same limits for the secondary y-axis
     # Set the tick labels for the secondary y-axis
-    ax2.set_yticks([-2, -1, 0, 0.584, 1])  # log2 ratios for copy numbers 0, 1, 2, 3, 4
+    ax2.set_yticks([-3, -1, 0, 0.584, 1])  # log2 ratios for copy numbers 0, 1, 2, 3, 4
     ax2.set_yticklabels([0, 1, 2, 3, 4])  # Corresponding copy numbers
     ax2.set_ylabel("Copy number")  # Set label for the secondary y-axis
-
 
     png_file = os.path.join(sample.sample_folder, variant_title)
     plt.savefig(png_file, format='png', dpi=300)
@@ -274,14 +281,12 @@ class CnvPlot:
 
         self._del_cutoff = del_cutoff
 
-    def plot_genomewide(self, genomewide, by_chr):
+    def plot_genomewide(self, genomewide, by_chr, sample):
 
         # Naming the genome plot
         plot_name = "{}{}".format(self._sample, ".genomewide.png")
         plot = str(Path(self._output_dir) / plot_name)
 
-        if os.path.isfile(plot):
-            return plot
 
         cnr_df = pd.read_csv(self._cnr_file, sep="\t")
         cnr_df['chr'] = cnr_df['chr'].astype(str)  # Making sure the 'chr' column is string
@@ -290,8 +295,8 @@ class CnvPlot:
 
         sample_ratio = self._sample + "_ratio"
         min_ratio = cnr_df[sample_ratio].min()
-        min_limit = -1
-        if min_ratio < -3:
+        min_limit = -3.5
+        if min_ratio <= -3:
             min_limit = -3.5
 
         # Setting chromosome color
@@ -320,38 +325,41 @@ class CnvPlot:
             i += 1
 
         if genomewide == True:
-            if not os.path.isfile(plot):
-                sns.set(rc={"figure.dpi": 180, "savefig.dpi": 180})
-                sns.set_style("ticks")
-                fig, axes = plt.subplots(figsize=(20, 7))
-                fig.suptitle(self._sample, fontsize=20)
+            # if not os.path.isfile(plot):
+            sns.set(rc={"figure.dpi": 180, "savefig.dpi": 180})
+            sns.set_style("ticks")
+            fig, axes = plt.subplots(figsize=(20, 7))
+            fig.suptitle(self._sample, fontsize=20)
 
-                ratio_plot = sns.scatterplot(
-                    data=cnr_df,
-                    x=cnr_df.index,
-                    y=cnr_df[sample_ratio],
-                    size=0.1,
-                    hue=cnr_df.chr,
-                    palette=palette_dict,
-                    edgecolor="none",
-                )
+            ratio_plot = sns.scatterplot(
+                data=cnr_df,
+                x=cnr_df.index,
+                y=cnr_df[sample_ratio],
+                size=0.1,
+                hue=cnr_df.chr,
+                palette=palette_dict,
+                edgecolor="none",
+            )
 
-                # Setting y limits
-                ratio_plot.set(ylim=(min_limit, 1))
-                ratio_plot.set_xticks(xtick_list)
-                ratio_plot.set_xticklabels(unique_chromosomes, rotation=40, size=15)
-                ratio_plot.set_yticks(ratio_plot.get_yticks())
-                ratio_plot.set_yticklabels(ratio_plot.get_yticks(), size=15)
-                ratio_plot.get_legend().remove()
-                ratio_plot.set_xlabel("", fontsize=20)
-                ratio_plot.set_ylabel("log2 Ratio", fontsize=20)
-                ratio_plot.axhline(self._dup_cutoff, ls="--", color="blue")
-                ratio_plot.axhline(self._del_cutoff, ls="--", color="red")
+            # Setting y limits
+            ratio_plot.set(ylim=(min_limit, 1))
+            ratio_plot.set_xticks(xtick_list)
+            ratio_plot.set_xticklabels(unique_chromosomes, rotation=40, size=15)
+            ratio_plot.set_yticks(ratio_plot.get_yticks())
+            ratio_plot.set_yticklabels(ratio_plot.get_yticks(), size=15)
+            ratio_plot.get_legend().remove()
+            ratio_plot.set_xlabel("", fontsize=20)
+            ratio_plot.set_ylabel("log2 Ratio", fontsize=20)
+            ratio_plot.axhline(self._dup_cutoff, ls="--", color="blue")
+            ratio_plot.axhline(self._del_cutoff, ls="--", color="red")
 
-                # Adding vertical lines to separate chromosomes
-                for xc in xtick_list:
-                    ratio_plot.axvline(x=xc, color="black")
-                # Saving as png
-                ratio_plot.figure.savefig(plot)
-                plt.close()
-        return plot
+            # Adding vertical lines to separate chromosomes
+            for xc in xtick_list:
+                ratio_plot.axvline(x=xc, color="black")
+            # Saving as png
+            ratio_plot.figure.savefig(plot)
+            plt.close()
+
+            sample.analysis_json["genome_wide"] = cnr_df.to_json()
+
+        return plot, sample

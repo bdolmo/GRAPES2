@@ -9,6 +9,7 @@ from collections import defaultdict
 from scipy.spatial import distance
 from scipy.stats import nbinom, poisson, norm
 from scipy.special import logsumexp
+import math 
 
 def calculate_positional_mean_variance(sample_list, analysis_dict):
     """ """
@@ -110,7 +111,7 @@ class CustomHMM:
             [
                 [0.5, 0, 0.5, 0, 0],
                 [0, 0.5, 0.5, 0, 0],
-                [0.005, 0.02, 0.95, 0.02, 0.005],
+                [0.0125, 0.0125, 0.95, 0.0125, 0.0125],
                 [0, 0, 0.5, 0.5, 0],
                 [0, 0, 0.5, 0, 0.5],
             ]
@@ -152,10 +153,12 @@ class CustomHMM:
 
         for chr in self._obs_dict:
             for region in self._obs_dict[chr]:
-                # print(region[self._sample]['coordinate'])
                 sample_depth = region[self._sample]["normalized_depth"]
                 bg_depth = region[self._sample]["bg_mean"]
                 bg_std = region[self._sample]["bg_std"]
+                if math.isnan(bg_std):
+                    bg_std = 0.2
+
                 if region[self._sample]["is_offtarget"] == False:
                     mean_bg_std_list.append(bg_std)
                 else:
@@ -194,7 +197,7 @@ class CustomHMM:
                     combined_error_estimate = np.sqrt(bg_std**2 + mean_bg_std_offtarget**2)
 
                 if x == 0:
-                    x = 1
+                    x = 0.01
                 logp_dict[idx][state] = round(
                     np.log(norm.pdf(x, loc=mean_state, scale=combined_error_estimate)+epsilon), 6
                 )
@@ -205,6 +208,8 @@ class CustomHMM:
 
             emissions.append(state_list)
             idx += 1
+        
+
         return emissions
 
     def forward(self):
@@ -327,9 +332,6 @@ class CustomHMM:
                 # assign a 0 state
                 if np.isinf(omega[t, j]):
                     omega[t, j] = -10000000
-            # print(self.list_of_rois[t]['coordinate'], phred_scores[t] )
-
-        # print(omega)
 
         # Path Array
         X = np.zeros(T)

@@ -8,9 +8,8 @@
 class SV {
 
 	public:
-
 		// Constructor,  <vector_of_reads>,  chromosome, position
-		SV( std::vector<sam_t>&, std::string, std::string, int, int, std::string, int, int, std::string, std::string&, std::string, int, double, double);
+		SV(std::vector<sam_t>&, std::string, std::string, int, int, std::string, int, int, std::string, std::string&, std::string, int, double, double, int);
 
 		bool classify(std::vector<vcf_t>&, std::string&);
 
@@ -31,6 +30,6 @@ class SV {
 		int nDiscordants;
 		double pvalue_discordant;
 		double kmer_diversity;
-
+		int meanBaseQual;
 
 };

@@ -18,6 +18,7 @@
 #include "varCall.h"
 #include "largeSV.h"
 #include "callSV.h"
+#include "ssw_cpp.h"
 
 // Seqlib headers
 #include "SeqLib/RefGenome.h"
@@ -26,7 +27,6 @@
 #include "SeqLib/BamRecord.h"
 #include "SeqLib/BFC.h"
 #include "SeqLib/FermiAssembler.h"
-
 #include <boost/progress.hpp>
 
 
@@ -53,11 +53,39 @@ std::string returnSoftEdge(std::string& svtype, std::string& location, std::stri
 	return softEdge;
 }
 
-// This function return a cluster if it contains at least (-r) minimum soft-clips.
-// This is because at clusterSC.cpp we clustered SC reads with different subtypes
-//std::vector<std::string> checkClusterMinSoft
 
-void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& discordantList, std::map<std::string, std::vector<GenomicRange>>& breakReadLocations, std::map<std::string, std::vector<sam_t>>& breakReadClusters, std::vector<vcf_t>& vcf_v, std::string svtype, std::string softEdge) {
+int getSupportingContigReads2(std::vector<std::string>& reads, std::string& contig) {
+
+	int supportingReads = 0;
+	for(auto& read_seq: reads) {
+
+		// Declares a default Aligner
+		StripedSmithWaterman::Aligner ssw_aligner;
+
+		// Declares a default filter
+		StripedSmithWaterman::Filter filter;
+
+		// Declares an alignment that stores the result
+		StripedSmithWaterman::Alignment alignment;
+
+		ssw_aligner.Align(read_seq.c_str(), contig.c_str(), contig.length(), filter, &alignment);
+		int mismatches =alignment.mismatches;
+		int q_begin = alignment.query_begin;
+		int q_end = alignment.query_end;
+		int q_size = q_end-q_begin;
+
+		float minQuerySize = read_seq.length()*0.9;
+		if (q_size >= minQuerySize && mismatches < 3) {
+			supportingReads++;
+		}
+	}
+	return supportingReads;
+}
+
+
+void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& discordantList, std::map<std::string, 
+	std::vector<GenomicRange>>& breakReadLocations, std::map<std::string, std::vector<sam_t>>& breakReadClusters, 
+	std::vector<vcf_t>& vcf_v, std::string svtype, std::string softEdge) {
 
 	int N = 0;
 	int count = 0;
@@ -118,18 +146,22 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 				addNtdPositions = end_pseudo - start_pseudo;
 
 				// Finding soft-clip clusters using binary search
-				upstream_v   = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), chrom.first, coord.start-loffset, coord.start+loffset );
-				downstream_v = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), chrom.first, coord.end-loffset+1, coord.end+loffset );
+				upstream_v   = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), 
+					chrom.first, coord.start-loffset, coord.start+loffset );
+				downstream_v = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), 
+					chrom.first, coord.end-loffset+1, coord.end+loffset );
 				pseudo_ref   = ref.QueryRegion(chr, start_pseudo, end_pseudo);
 			}
 			// For larger SVs
 			else {
 				svlength = "large";
 				// Looking for breakpoints at upstream region
-				upstream_v   = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), chrom.first, coord.start-500, coord.start+500);
+				upstream_v   = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), 
+					chrom.first, coord.start-500, coord.start+500);
 
 				// Looking for breakpoints at downstream region
-				downstream_v   = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), chrom.first, coord.end-500, coord.end+500);
+				downstream_v   = binarySearch( breakReadLocations[chrom.first], breakReadLocations[chrom.first].size(), 
+					chrom.first, coord.end-500, coord.end+500);
 				start_pseudo   = coord.start-500;
 				end_pseudo     = coord.end-500;
 				upstream_ref   = ref.QueryRegion(chrom.first, coord.start-500, coord.start+500);
@@ -139,23 +171,28 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 			// Now selecting most appropiate upstream soft-clusters and assemble them
 			genomeLoc = "UP";
 			softEdge = returnSoftEdge(svtype, genomeLoc, softEdge);
+
+			std::vector<int> mapqQualities;
+			std::vector<int> baseQualities;
+
 			for (auto& c: upstream_v) {
 				std::string mkey = chr + "\t" + std::to_string(c.start) + "\t" + c.softclip_type;
-
 				if (visitedBreak.count(mkey)>0) {
 					continue;
 				}
 				if (softEdge != "undef" && softEdge != c.softclip_type) {
 					continue;
 				}
+
 		 		it1 = breakReadClusters.find(mkey);
 				if(it1 != breakReadClusters.end()) {
-
 					for (auto& read: it1->second) {
 						string seq  = DNA.decompressDNA(read.bitSeq, read.seqLen);
 						Trimmer trim1(seq, read.qual);
 						seq = trim1.trim();
 						cluster.push_back(seq);
+						mapqQualities.push_back(read.mapq);
+						baseQualities.push_back(read.mean_qual);						
 					}
 				}
 			}
@@ -176,11 +213,13 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 				if(it2 != breakReadClusters.end()) {
 
 					for (auto& read: it2->second) {
-
 						string seq  = DNA.decompressDNA(read.bitSeq, read.seqLen);
 						Trimmer trim1(seq, read.qual);
 						seq = trim1.trim();
 						int nTrim = trim1.getTotalTrimmed();
+
+						mapqQualities.push_back(read.mapq);
+						baseQualities.push_back(read.mean_qual);	
 
 						if (svtype == "INV") {
 							cluster.push_back(revComp(seq));
@@ -191,17 +230,51 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 					}
 				}
 			}
+			int meanBaseQual;
+			int meanMapQual;
 
-			if (cluster.size() >  0) {
+			if (cluster.size() > 0) {
 
-				Assembler A(cluster, minOlapBases, 2, 2, 20);
-				std::vector<std::string> contigs = A.ungappedGreedy();
-				int numAssembledA = A.getNumAssembled();
-	
-				int totalAssembled = numAssembledA;
-				double kmerDiversity = 0.0;
-				kmerDiversity = getKmerDiversity(contigs);
 			    int totalReads= cluster.size();
+
+				int cidx = 0;
+				UnalignedSequenceVector unalignVect;
+				for (auto&candidateRead : cluster) {
+					std::string Qual= "";
+					for (auto&ntd : candidateRead) {
+						Qual+= "E";
+					}
+					UnalignedSequence unSeq(std::to_string(cidx), candidateRead, Qual);
+					unalignVect.push_back(unSeq);
+					cidx++;
+				}
+
+				double kmerDiversity = 0.0;
+
+				meanMapQual = accumulate( mapqQualities.begin(), 
+					mapqQualities.end(), 0.0)/mapqQualities.size();
+				meanBaseQual = accumulate(baseQualities.begin(),
+					baseQualities.end(), 0.0)/baseQualities.size();
+
+				FermiAssembler f;
+
+				// add the reads and error correct them  
+				f.AddReads(unalignVect);
+				f.CorrectReads();
+
+				// // peform the assembly
+				f.PerformAssembly();
+				std::vector<std::string> contigs = f.GetContigs();
+
+				f.ClearReads();
+				f.ClearContigs();
+
+				int supportingContigs = 0;
+				for (auto& contig : contigs) {
+					supportingContigs = getSupportingContigReads2(cluster, contig);
+				}
+				int totalAssembled = supportingContigs;
+				kmerDiversity = getKmerDiversity(contigs);
 
 				int i = 0;
 				vector<sam_t> v_sam;
@@ -222,7 +295,7 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 					bwamem.SetAScore(2);
 					bwamem.SetGapOpen(30);
 					bwamem.SetGapExtension(0.5);			
-					bwamem.SetBandwidth(1000);	
+					bwamem.SetBandwidth(2000);	
 					bwamem.SetMismatchPenalty(8);		
 					bwamem.SetReseedTrigger(1.5);
 					bwamem.Set3primeClippingPenalty(5);
@@ -246,7 +319,8 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 					}
 					i++;
 				}
-				SV call(v_sam, chr, chr, start_pseudo, end_pseudo, "undef",  totalReads, totalAssembled, bamFile, pseudo_ref, svlength,  coord.supporting, coord.pvalue_discordant, kmerDiversity);
+				SV call(v_sam, chr, chr, start_pseudo, end_pseudo, "undef",  totalReads, totalAssembled, bamFile, pseudo_ref, svlength, 
+					coord.supporting, coord.pvalue_discordant, kmerDiversity, meanBaseQual);
 				int foundSV = call.classify(vcf_v, svtype);
 				if (foundSV) {
 
@@ -275,8 +349,13 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 			 		}
 				 }
 				 else {
-
 					int len = coord.end - coord.start;
+					double pvalue_upstream;
+					double pvalue_downstream;
+					double pvalue_twosided;
+					int counts_5prime, counts_inner, counts_3prime;
+					double meanPvalue = 0.00;
+
 					vcf_t call;
 					call.chr =  chrom.first;
 					call.start = coord.start;
@@ -288,19 +367,15 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 					call.mapq =  coord.mapq;
 					call.hasRDsupport = false;
 					call.RDratio = ".";
-					call.RDmad   = ".";
+					call.RDmad = ".";
 					call.LOHsupport = ".";
-
-					double pvalue_upstream;
-					double pvalue_downstream;
-					double pvalue_twosided;
-					int counts_5prime, counts_inner, counts_3prime;
-					double meanPvalue = 0.00;
-					call.covPvalue      = meanPvalue;
-					call.discordants    = coord.supporting;
-					call.alleleBalance  = coord.discordant_ratio;
-					call.discPvalue     = coord.pvalue_discordant;
+					call.covPvalue = meanPvalue;
+					call.discordants = coord.supporting;
+					call.alleleBalance = coord.discordant_ratio;
+   				    call.depth = 0.0;					
+					call.discPvalue = coord.pvalue_discordant;
 					call.cumulativeSize = coord.cumulativeSize;
+					call.meanBaseQual = meanBaseQual;
 					//call.reciprocalSupport = "no";
 					vcf_v.push_back(call);
 				 }
@@ -325,12 +400,14 @@ void largeSV::callStructVar( std::map<std::string, std::vector<GenomicRange>>& d
 					double pvalue_downstream;
 					double pvalue_twosided;
 					int counts_5prime, counts_inner, counts_3prime;
-					double meanPvalue  = 0.00;
-					call.covPvalue     = meanPvalue;
-					call.discordants   = coord.supporting;
+					double meanPvalue = 0.00;
+					call.covPvalue = meanPvalue;
+					call.discordants = coord.supporting;
 					call.alleleBalance = coord.discordant_ratio;
-					call.discPvalue    = coord.pvalue_discordant;
-					call.cumulativeSize= coord.cumulativeSize;
+   				    call.depth = 0.0;					
+					call.discPvalue = coord.pvalue_discordant;
+					call.cumulativeSize = coord.cumulativeSize;
+					call.meanBaseQual = meanBaseQual;
 					//call.reciprocalSupport = "no";
 					vcf_v.push_back(call);
 			    }

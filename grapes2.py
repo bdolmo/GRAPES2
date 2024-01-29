@@ -22,6 +22,8 @@ from modules.call import (
     unify_raw_calls,
     export_cnv_calls,
 )
+from modules.vcf import bed_to_vcf
+import json
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(main_dir, "/modules"))
@@ -32,7 +34,6 @@ def setup_logging(output_dir: str):
     log_file = str(Path(output_dir) / log_file_name)
 
     # logging formatting
-
     logging.basicConfig(
         filename=log_file, filemode="w", format="%(asctime)s\t%(message)s"
     )
@@ -113,18 +114,28 @@ def main(args):
             del_cutoff=args.upper_del_cutoff,
         )
         # Plotting genomewide CNV profile
-        sample_plot = cnp.plot_genomewide(genomewide=True, by_chr=False)
-
+        sample_plot, sample = cnp.plot_genomewide(genomewide=True, by_chr=False, sample=sample)
 
     for sample in sample_list:
-
         sv_bed = os.path.join(args.output_dir, sample.name, 
             f"{sample.name}.GRAPES2.breakpoints.bed")
         cnv_bed = os.path.join(args.output_dir, sample.name, 
             f"{sample.name}.GRAPES2.cnv.bed")
+        final_vcf = os.path.join(args.output_dir, sample.name, 
+            f"{sample.name}.GRAPES2.vcf")
+
         merged_bed = os.path.join(args.output_dir, f"{sample.name}.GRAPES2.bed")
         merge_bed_files(cnv_bed, sv_bed, merged_bed)
 
+        sample = bed_to_vcf(merged_bed, args.bed, sample.bam, final_vcf, sample)
+
+        json_data = json.dumps(sample.analysis_json, indent=2)
+
+        output_json = os.path.join(args.output_dir, sample.name, 
+            f"{sample.name}.GRAPES2.json")
+
+        with open(output_json, 'w') as f:
+            json.dump(json_data, f)
 
 
 def parse_arguments():

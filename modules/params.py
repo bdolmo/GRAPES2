@@ -4,6 +4,8 @@ from modules.utils import get_bam_files, check_executable
 from modules.sample import Sample
 from pathlib import Path
 import logging
+from collections import defaultdict
+from datetime import datetime
 
 main_dir = Path(__file__).resolve().parents[1]
 bin_dir = os.path.join(main_dir, "bin")
@@ -61,6 +63,8 @@ def initialize(args):
 
     # load bam files from input directory
     bam_list = get_bam_files(args.bam_dir)
+    now = datetime.now()
+    date_time = now.strftime("%Y%m%d")
 
     # Iterate through bam list and create sample objects
     sample_list = list()
@@ -68,12 +72,17 @@ def initialize(args):
         # Sample name from bam file prefix. todo: get name from bam SN
         sample_name = os.path.basename(bam_file).replace(".bam", "")
 
+        analysis_json = defaultdict(dict)
+        analysis_json["analysis_date"] = date_time
+        analysis_json["sample_name"] = sample_name
+
         # Now create a sample object
         sample = Sample(sample_name)
         sample_folder = Path(args.output_dir) / sample_name
         sample_folder.mkdir(parents=True, exist_ok=True)
         sample.add("sample_folder", str(sample_folder))
         sample.add("bam", bam_file)
+        sample.add("analysis_json", analysis_json)
         sample_list.append(sample)
 
     return sample_list, analysis_dict, ngs_utils_dict, annotation_dict

@@ -105,7 +105,6 @@ def svd_noise_reduction(df, var_cutoff=0.9, max_components=25):
     # Determine the number of components to keep
     prop_v = np.cumsum(S**2 / np.sum(S**2))
 
-    print(prop_v)
 
     n_components = np.nonzero(prop_v > var_cutoff)[0][0]
     n_components = 15
@@ -164,7 +163,6 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
             # Export offtarget normalized depth
             df.to_csv(normalized_offtarget, sep="\t", mode="w", index=None)
     
-
 
     if os.path.isfile(normalized_depth) and os.path.isfile(normalized_offtarget):
 
@@ -281,11 +279,14 @@ def normalize_per_base(sample_list, analysis_dict, fields):
 def norm_by_lib(row, sample_median, chrX_median, sample_name, total_reads):
     """ """
     length = row["end"] - row["start"]
+    if sample_median == 0:
+        sample_median = 0.01
 
     if row["chr"] == "chrX" or row["chr"] == 23 or row["chr"] == "X":
         norm_lib = row[sample_name]/chrX_median
     else:
         norm_lib = row[sample_name]/sample_median
+
     return norm_lib
 
 
@@ -436,6 +437,9 @@ def apply_normalization(row, cov_target, stats_dict, field, gc_bin_dict):
         gc_bin_size = gc_bin_dict[gc_bin]
 
     norm_cov = row[cov_target]
+
+    if row[median_field_chrY] == 0:
+        row[median_field_chrY] = 0.01
 
     if row["chr"] == "chrX":
         if gc_bin_size > 10:

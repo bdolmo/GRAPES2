@@ -62,7 +62,7 @@ using namespace SeqLib;
 				covBase[pos]++;
 			}
 		}
-				
+
 		std::string tag = "MD";
 
 		std::vector<std::string> MDtag = r.GetSmartStringTag(tag);
@@ -90,7 +90,7 @@ using namespace SeqLib;
 					char Alt = seq[readPos];
 					char Ref = element[i];
 					
-					if ( varHash.count(varPos) == 0) {
+					if (varHash.count(varPos) == 0) {
 
 						varInfo var;
 						var.chr = r.ChrID();
@@ -126,8 +126,6 @@ using namespace SeqLib;
 							varHash[varPos].Guanine++;
 						}
 					}
-
-//std::cout << r.Qname() << "\t" << "chr" << r.ChrID() << ":" << r.Position() << "\t" << tmp << "=>" << element[i] << "\t" << element << "\t" << readPos << "\t" << r.ChrID() << "\t" << varPos << "\t" << element[i] << "/" << seq[readPos] <<  "\t" << r.Sequence() << std::endl;
 					tmp = "";
 					readPos++;
 				}
@@ -188,8 +186,6 @@ using namespace SeqLib;
 	float homRatio = (double)totalHom/totalVars;
 
 	if (totalVars > 2 && homRatio < minHomRatio) {
-
-		//std::cout << coordinate << "\t" << homRatio << std::endl;	
 		return 1;
 	} 
 	else if ( totalVars > 2 && homRatio >= minHomRatio) {
