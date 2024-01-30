@@ -9,5 +9,4 @@ seaborn>=0.13
 pybedtools>=0.8.2
 adjustText>=0.7.3
 PyYAML>=6.0
-statsmodels>=0.14.1 
-sklearn
+statsmodels>=0.14.1
