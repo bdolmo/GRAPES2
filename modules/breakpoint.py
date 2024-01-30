@@ -5,7 +5,6 @@ import re
 import numpy as np
 import logging
 from statistics import median
-from Bio import Align
 from modules.bed import BedRecord, load_bed_file
 from collections import defaultdict
 import subprocess
