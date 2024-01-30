@@ -33,9 +33,8 @@ RUN mkdir -p annotations/mappability
 RUN wget https://www.dropbox.com/s/3hnvpczq9sbown6/GRCh38.mappability.100mer.bedGraph.gz?dl=0 -O annotations/mappability/GRCh38.mappability.100mer.bedGraph.gz && \
     wget https://www.dropbox.com/s/hjf0a9ga8je6ndz/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=0 -O annotations/mappability/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz
 
+# Add GRAPES to PATH
+ENV PATH="/usr/src/app/GRAPES2:${PATH}"
 
-# Set the entry point to the Python interpreter
-ENTRYPOINT ["python"]
-
-# Set the default command to run your script
-CMD ["./grapes2.py"]
+# by default GRAPES is executed
+CMD ["GRAPES2"]
