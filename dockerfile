@@ -1,0 +1,37 @@
+# Start from a Python 10 base image
+FROM python:3.11-slim
+
+# Set the working directory in the container
+WORKDIR /usr/src/app
+
+# Install git and build dependencies
+RUN apt-get update && \
+    apt-get install -y git \
+    build-essential \
+    libatlas-base-dev \
+    libblas-dev \
+    liblapack-dev \
+    gfortran \
+    wget \
+    zlib1g-dev
+        
+# Clone the repository
+RUN git clone https://github.com/bdolmo/GRAPES2.git
+
+# Change the working directory to GRAPES2
+WORKDIR /usr/src/app/GRAPES2
+
+RUN pip3 install --upgrade pip
+
+# Install any dependencies
+RUN pip3 install --no-cache -r requirements.txt
+
+# Create the mappability directory
+RUN mkdir -p annotations/mappability
+
+# Download the large mappability files into the annotations/mappability directory
+RUN wget https://www.dropbox.com/s/3hnvpczq9sbown6/GRCh38.mappability.100mer.bedGraph.gz?dl=0 -O annotations/mappability/GRCh38.mappability.100mer.bedGraph.gz && \
+    wget https://www.dropbox.com/s/hjf0a9ga8je6ndz/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=0 -O annotations/mappability/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz
+
+# Your application's default command
+CMD ["python", "./grapes2.py"]
