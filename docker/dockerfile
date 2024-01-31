@@ -13,7 +13,8 @@ RUN apt-get update && \
     liblapack-dev \
     gfortran \
     wget \
-    zlib1g-dev
+    zlib1g-dev \
+    bedtools
         
 # Clone the repository
 RUN git clone https://github.com/bdolmo/GRAPES2.git
