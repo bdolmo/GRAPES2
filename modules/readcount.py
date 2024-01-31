@@ -59,6 +59,9 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         output = p1.stdout.decode("UTF-8")
         error = p1.stderr.decode("UTF-8")
 
+        print(output)
+        print(error)
+
     if os.path.isfile(per_base_coverage_file):
         if not check_first_line(per_base_coverage_file):
             per_base_coverage_file_tmp = per_base_coverage_file.replace(".bed", ".tmp.bed")
