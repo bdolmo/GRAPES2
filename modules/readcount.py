@@ -46,7 +46,6 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         analysis_dict["threads"],
     )
 
-
     if not os.path.isfile(unified_raw_depth) and not os.path.isfile(
         per_base_coverage_file
     ):
@@ -58,7 +57,6 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         output = p1.stdout.decode("UTF-8")
-        print(output)
         error = p1.stderr.decode("UTF-8")
 
     if os.path.isfile(per_base_coverage_file):
@@ -75,6 +73,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
             o.close()
             os.remove(per_base_coverage_file)
             os.rename(per_base_coverage_file_tmp, per_base_coverage_file)
+
     
     summary_log_name = "summary_metrics.log"
     summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
@@ -91,7 +90,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
                 if sample.name == sample_name:
                     gender = "Undefined"
                     mean_coverage = float(tmp[5])
-                    mean_coverage_X = float(tmp[9])
+                    mean_coverage_X = float(tmp[-1])
                     threshold = 1.5  
                     ratio = round(mean_coverage / mean_coverage_X,3) if mean_coverage_X > 0 else 0
                     if ratio >= threshold:
@@ -100,7 +99,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
                         gender = "Female"
                     sample.add("ontarget_reads", int(tmp[2]))
                     sample.add("mean_coverage", float(tmp[5]))
-                    sample.add("mean_coverage_X", float(tmp[9]))
+                    sample.add("mean_coverage_X", float(tmp[-1]))
                     sample.add("gender", gender)
                     msg = f" INFO: {sample.name}\tGender_ratio:{str(ratio)}\tGender:{gender}"
                     print(msg)

@@ -147,15 +147,17 @@ def main():
         print(f" INFO: Analyzing all bam files from {args.input} directory")
         bams = [str(bam_file) for bam_file in Path(args.input).glob("*.bam")]
     elif os.path.isfile(args.input):
-        with open(args.input, 'r') as file:
-            bams = [line.strip() for line in file if os.path.isfile(line.strip())]
+        with open(args.input, 'r') as f:
+            for line in f:
+                line = line.rstrip("\n")
+                bams.append(line)
+        f.close()
     else:
         bams = args.input.split(',')
 
     if not bams:
         print(" ERROR: No valid input files found")
         exit()
-
     print(f"Number of threads: {args.threads}")
 
     # Create output directory if it doesn't exist
@@ -191,8 +193,10 @@ def main():
                 if line.startswith("SAMPLE\t"):
                     continue
                 sample = data[0]
-                sample_bam = os.path.join(args.input, sample)
-
+                sample_bam = ""
+                for bam in bams:
+                    if sample in bam:
+                        sample_bam = bam
                 total_reads = get_total_reads(sample_bam)
 
                 reads_on_target = int(data[1])
@@ -205,10 +209,11 @@ def main():
                 mean_counts_X = float(data[8]) 
 
                 roi = (reads_on_target / total_reads) * 100 if total_reads > 0 else 0
-
+                print(f"{sample}\t{total_reads}\t{reads_on_target}\t{reads_X}\t{roi}\t{mean_coverage}\t{mean_counts}\t{mean_isize}\t{sd_isize}\t{mean_coverage_X}\t{mean_counts_X}")
                 sf.write(f"{sample}\t{total_reads}\t{reads_on_target}\t{reads_X}\t{roi}\t{mean_coverage}\t{mean_counts}\t{mean_isize}\t{sd_isize}\t{mean_coverage_X}\t{mean_counts_X}\n")
         rf.close()
         sf.close()
+
         os.remove(summary_file)
         os.rename(new_summary_file, summary_file)
 
