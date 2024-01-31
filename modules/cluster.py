@@ -80,6 +80,7 @@ def cluster_samples(corr_tsv, sample_list, min_correlation=0.90, min_refs=3, max
         else:
             sample.add("analyzable", "False")
         sample.add("mean_correlation", corr_dict[sample_name]["mean_correlation"])
+        sample.analysis_json["mean_correlation"] = corr_dict[sample_name]["mean_correlation"]
         ref_dict = sorted(
             corr_dict[sample_name]["correlations"].items(),
             key=lambda item: item[1],

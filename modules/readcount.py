@@ -51,15 +51,14 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         per_base_coverage_file
     ):
 
-        msg = (" INFO: Extracting coverage for {} samples").format(
-            analysis_dict["output_name"]
-        )
+        msg = f' INFO: Extracting coverage for {analysis_dict["output_name"]}'
         logging.info(msg)
 
         p1 = subprocess.run(
             cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         output = p1.stdout.decode("UTF-8")
+        print(output)
         error = p1.stderr.decode("UTF-8")
 
     if os.path.isfile(per_base_coverage_file):

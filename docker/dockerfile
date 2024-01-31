@@ -14,7 +14,8 @@ RUN apt-get update && \
     gfortran \
     wget \
     zlib1g-dev \
-    bedtools
+    bedtools \
+    samtools
         
 # Clone the repository
 RUN git clone https://github.com/bdolmo/GRAPES2.git

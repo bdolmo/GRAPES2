@@ -1,0 +1,4 @@
+/home/bdelolmo/Desktop/TEST_DMD/RB36109.rmdup.bam
+/home/bdelolmo/Desktop/TEST_DMD/RB36179.rmdup.bam
+/home/bdelolmo/Desktop/TEST_DMD/RB36180.rmdup.bam
+/home/bdelolmo/Desktop/TEST_DMD/RB36182.rmdup.bam

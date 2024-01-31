@@ -75,7 +75,16 @@ def initialize(args):
     analysis_dict["force"] = args.force
 
     # load bam files from input directory
-    bam_list = get_bam_files(args.bam_dir)
+    bam_list = []
+    if os.path.isdir(args.bam_dir):
+        bam_list = get_bam_files(args.bam_dir)
+    else:
+        with open(args.bam_dir) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                bam_list.append(line)
+        f.close()
+
     now = datetime.now()
     date_time = now.strftime("%Y%m%d")
 
