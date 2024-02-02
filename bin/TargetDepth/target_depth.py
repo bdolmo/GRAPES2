@@ -197,6 +197,7 @@ def main():
                 for bam in bams:
                     if sample in bam:
                         sample_bam = bam
+                # sample_bam = os.path.join(args.input, sample)
                 total_reads = get_total_reads(sample_bam)
 
                 reads_on_target = int(data[1])
