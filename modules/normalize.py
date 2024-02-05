@@ -234,6 +234,8 @@ def normalize_per_base(sample_list, analysis_dict, fields):
     for sample in sample_list:
         sample_stats[sample.name]["MEAN_COVERAGE"] = sample.mean_coverage
         sample_stats[sample.name]["MEAN_COVERAGEX"] = sample.mean_coverage_X
+        if sample.mean_coverage_X == 0:
+            sample_stats[sample.name]["MEAN_COVERAGEX"] = 0.01
 
     sample_idx = {}
     o = open(normalized_per_base_file, "w")

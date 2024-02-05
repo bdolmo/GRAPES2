@@ -56,6 +56,7 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, analysis_dict,
         "RFcluster": os.path.join(output_dir, f"{sample_name}.RF.clusters.bed"),
         "FFcluster": os.path.join(output_dir, f"{sample_name}.FF.clusters.bed"),
         "RRcluster": os.path.join(output_dir, f"{sample_name}.RR.clusters.bed"),
+        "SRcluster": os.path.join(output_dir, "clusters_SR.bed"),
         # "tmp_rawcalls": os.path.join(output_dir, f"{sample_name}.tmp.rawcalls.bed"),
     }
 

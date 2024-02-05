@@ -33,7 +33,7 @@ def export_cnv_calls(sample_list, analysis_dict):
         if sample.analyzable == "False":
             continue
 
-        tags = ['SVTYPE', 'REGION', 'NREGIONS', 'LOG2RATIO', 'CN', 'CNV_SCORE']
+        tags = ['SVTYPE', 'REGION', 'GC', 'MAP', 'NREGIONS', 'LOG2RATIO', 'CN', 'CNV_SCORE']
 
         original = sample.cnv_calls_bed
         target_name = f'{sample.name}.GRAPES2.cnv.bed'
@@ -44,14 +44,18 @@ def export_cnv_calls(sample_list, analysis_dict):
                 line = line.rstrip("\n")
                 if line.startswith("chr\tstart"):
                     continue
+                #chr	start	end	regions	gc	map	n_regions	log2_ratio	copy_number	score	x	cnvtype	std
+                #chr2	179563495	179563715	TTN	30.0	100.0	30.0	100.0	1	1.037	4	60.0	1	DUP	0.0
                 tmp = line.split("\t")
                 info = {
-                    "SVTYPE": tmp[9],
+                    "SVTYPE": tmp[13],
                     "REGION": tmp[3],
-                    "NREGIONS": tmp[4],
-                    "LOG2RATIO": tmp[5],
-                    "CN": tmp[6],
-                    "CNV_SCORE": tmp[7]
+                    "GC": tmp[4],
+                    "MAP": tmp[5],
+                    "NREGIONS": tmp[8],
+                    "LOG2RATIO": tmp[9],
+                    "CN": tmp[10],
+                    "CNV_SCORE": tmp[11]
                 }
                 info_str = "IMPRECISE;" + ";".join(f"{k}={v}" for k, v in info.items())
                 coordinates = f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}"
@@ -98,6 +102,23 @@ def calculate_mad_z_score(case_coverage, background_coverage_list):
     return mad_z_score
 
 
+def ratio_to_dict(ratio_file):
+
+    ratios_dict = {}
+    with open(ratio_file, "r") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            tmp_line = line.split("\t")
+            region = "\t".join(tmp_line[0:3])
+            ratios_dict[region] = {}
+            #chr1	26380309	26380529	TRIM63	43.639999	100.0	0.249
+            ratios_dict[region]["gc"] = tmp_line[4]
+            ratios_dict[region]["map"] = tmp_line[5]
+    f.close()
+
+    return ratios_dict
+
+
 def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, analysis_dict):
     """ """
     # get sample indices from per base coverage bed
@@ -115,7 +136,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
         if sample.analyzable == "False":
             continue
         msg = f" INFO: Calling single-exon CNVs on sample {sample.name}"
-        logging.info(msg)
+        logging.info(msg)       
 
         a = pybedtools.BedTool(sample.raw_single_exon_calls)
         b = pybedtools.BedTool(analysis_dict["normalized_per_base"])
@@ -286,6 +307,9 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
         p = open(seg_calls_bed, "w")
         q = open(raw_single_cnv_file, "w")
 
+
+        ratio_dict = ratio_to_dict(sample.ratio_file)
+
         o.write("chr\tstart\tend\tregions\tn_regions\tlog2_ratio\tcn\tphred\tcnvtype\n")
         with open(sample.segment_file) as seg:
             for line in seg:
@@ -293,12 +317,14 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                 # chr11	19200000	26550000	133	0.5013	DEL
                 if line.startswith("chr\tstart"):
                     continue
+
                 tmp = line.split("\t")
                 chr = tmp[0]
                 start = tmp[1]
                 end = tmp[2]
                 regions = tmp[3]
                 n_regions = tmp[4]
+
                 log2_ratio = float(tmp[5])
                 cn = int(tmp[6])
                 phred_score = float(tmp[7])
@@ -326,24 +352,36 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                         if int(n_regions) > 1:
                             if analysis_dict["offtarget"] == False and  "pwindow" in regions:
                                 continue
+
+                            tmp_outline = outline.split("\t")
+                            tmp_outline.insert(4, ".")
+                            tmp_outline.insert(4, ".")
+                            outline = "\t".join(tmp_outline)
                             o.write(outline)
                             p.write(outline)
 
                             # Gene is assumed to be located at offset 3
                             gene = regions                          
                             tmp_regions = re.split('[, ;]', regions)
-
                             if len(tmp_regions) > 1:
                                 gene = tmp_regions[-1]
-
                             gene_plot, sample = plot_gene(sample.name, sample_list, gene, analysis_dict)
-
                         else:
                             coordinate = f"{chr}\t{start}\t{end}"
                             seen_roi_dict[coordinate] = coordinate
                             outline = f"{line}\t1\t{cnvtype}\n"
+
+                            variant = '\t'.join(tmp[0:3])
+                            gc = ratio_dict[variant]["gc"]
+                            map = ratio_dict[variant]["map"]
+
                             if analysis_dict["offtarget"] == False and  "pwindow" in regions:
                                 continue
+
+                            tmp_outline = outline.split("\t")
+                            tmp_outline.insert(4, map)
+                            tmp_outline.insert(4, gc)
+                            outline = "\t".join(tmp_outline)
                             q.write(outline)
                             o.write(outline)
                             p.write(outline)
@@ -361,7 +399,8 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                 start = tmp[1]
                 end = tmp[2]
                 region = tmp[3]
-
+                gc = tmp[4]
+                map = tmp[5]
                 coordinate = f"{chr}\t{start}\t{end}"
                 if coordinate in seen_roi_dict:
                     continue
@@ -375,7 +414,7 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                 zscore = (log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio
 
                 cn = str(int( (fold_change * 2)+.5))
-                tmp_list = [chr, start, end, region, "1", str(log2_ratio), "1", "60"]
+                tmp_list = [chr, start, end, region, gc, map, "1", str(log2_ratio), "1", "60"]
 
                 if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
                     cnvtype = "DEL"
@@ -450,13 +489,13 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
                 # chr11	19200000	26550000 GENE_ANNOT	133	0.5013	DEL
                 if line.startswith("chr\tstart"):
                     continue
-                tmp = line.split("\t")
-                chr = tmp[0]
-                start = tmp[1]
-                end = tmp[2]
-                n_bins = tmp[3]
-                ratio = tmp[5]
-                cnvtype = ""
+                # tmp = line.split("\t")
+                # chr = tmp[0]
+                # start = tmp[1]
+                # end = tmp[2]
+                # n_bins = tmp[3]
+                # ratio = tmp[5]
+                # cnvtype = ""
                 o.write(line+"\n")
         seg.close()
         o.close()
@@ -464,12 +503,25 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
         segmented_cnvs_dict = get_segmented_cnvs(ratio_no_header, tmp_calls)
 
         o = open(cnv_calls_bed, "w")
-        o.write("chr\tstart\tend\tregions\tn_regions\tlog2_ratio\tcopy_number\tcnvtype\tstd\n")
+        o.write("chr\tstart\tend\tregions\tgc\tmap\tn_regions\tlog2_ratio\tcopy_number\tscore\tx\tcnvtype\tstd\n")
         for variant in segmented_cnvs_dict:
-            arr = np.array(segmented_cnvs_dict[variant])
+            arr = np.array(segmented_cnvs_dict[variant]["ratios"])
             std = round(np.std(arr), 3)
             if std >= 0.3:
                 continue
+
+            arr = np.array(segmented_cnvs_dict[variant]["gc"])
+            gc_mean = round(np.mean(arr), 3)
+
+            arr = np.array(segmented_cnvs_dict[variant]["map"])
+            map_mean = round(np.mean(arr), 3)
+
+            tmp_variant = variant.split("\t")
+            tmp_variant.insert(4, str(map_mean))
+            tmp_variant.insert(4, str(gc_mean))
+
+            variant = '\t'.join(tmp_variant)
+
             outline = f"{variant}\t{str(std)}\n"
             o.write(outline)
         o.close()
@@ -480,11 +532,12 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
 
 def get_segmented_cnvs(ratio_no_header, tmp_calls):
     """ """
-    calls_dict = defaultdict(dict)
+    calls_dict = defaultdict(list)
     a = pybedtools.BedTool(ratio_no_header)
     b = pybedtools.BedTool(tmp_calls)
 
     c = a.intersect(b, wo=True, stream=True)
+
     for line in iter(c):
         line = str(line)
         #chr3	57882599	57882659	NM_007159_13_14;SLMAP	45.0	100.0	-1.037	chr3	57850274	57882659	NM_007159_9_10;SLMAP,NM_007159_10_11;	5	-0.844	1	DEL	    60
@@ -493,6 +546,13 @@ def get_segmented_cnvs(ratio_no_header, tmp_calls):
         tmp = line.split("\t")
         variant = "\t".join(tmp[7:-1])
         if not variant in calls_dict:
-            calls_dict[variant] = []
-        calls_dict[variant].append(float(tmp[6]))
+            calls_dict[variant] = {
+                "ratios": [],
+                "gc": [],
+                "map": []
+            }
+        calls_dict[variant]["ratios"].append(float(tmp[6]))
+        calls_dict[variant]["gc"].append(float(tmp[4]))
+        calls_dict[variant]["map"].append(float(tmp[5]))
+     
     return calls_dict

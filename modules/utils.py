@@ -7,8 +7,36 @@ import numpy as np
 import pandas as pd
 
 
-def sort_bed_file(input_bed):
+def remove_tmp_files(input_dir):
+    """ """
+    count_files = glob.glob(input_dir + "/*.bam_counts.bed")
+    for f in count_files:
+        os.remove(f)
 
+    isize_files = glob.glob(input_dir + "/*.bam_isizes.bed")
+    for f in isize_files:
+        os.remove(f)
+
+    coverage_files = glob.glob(input_dir + "/*.bam_coverage.bed")
+    for f in coverage_files:
+        os.remove(f)
+
+    per_base_files = glob.glob(input_dir + "/*.per.base.coverage.bed")
+    for f in per_base_files:
+        os.remove(f) 
+
+    normalized_base = glob.glob(input_dir + "/*.normalized.per.base.bed")
+    for f in normalized_base:
+        os.remove(f) 
+
+    tmp_calls = glob.glob(input_dir + "/*.tmp.rawcalls.bed") 
+    for f in tmp_calls:
+        os.remove(f) 
+
+
+
+def sort_bed_file(input_bed):
+    """ """
 
     output_bed = input_bed.replace(".bed", ".tmp.bed")
 

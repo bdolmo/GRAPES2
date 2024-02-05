@@ -23,6 +23,7 @@ from modules.call import (
     export_cnv_calls,
 )
 from modules.vcf import bed_to_vcf
+from modules.utils import remove_tmp_files
 import json
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -104,6 +105,8 @@ def main(args):
     sample_list = export_cnv_calls(sample_list, analysis_dict)
 
     for sample in sample_list:
+        if sample.analyzable == "False":
+            continue
         cnp = CnvPlot(
             cnr_file=sample.ratio_file,
             cns_file=".",
@@ -136,6 +139,7 @@ def main(args):
 
         with open(output_json, 'w') as f:
             json.dump(json_data, f)
+    remove_tmp_files(args.output_dir)
 
 
 def parse_arguments():
@@ -183,7 +187,6 @@ def parse_arguments():
         help="Genome reference in FASTA format",
         dest="reference",
     )
-
     parser.add_argument(
         "-g",
         "--genome_version",
@@ -194,8 +197,6 @@ def parse_arguments():
         help="Genome build",
         dest="genome_version",
     )
-
-
     parser.add_argument(
         "--breakpoint", 
         action="store_true", 
@@ -234,7 +235,6 @@ def parse_arguments():
         help=".",
         dest="min_zscore",
     )
-
     parser.add_argument(
         "--plot_normalization", 
         default=False, 

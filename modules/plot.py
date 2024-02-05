@@ -134,13 +134,15 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
     sample_ratios = []
     sample_exons = []
 
+    all_ratios = []
     for idx,row in enumerate(df_dict):
         sample_exons.append(row["exon"]+";"+str(row["start"]))
         sample_ratios.append(float(row[sample_tag]))
+        all_ratios.append(float(row[sample_tag]))
         for control in controls:
             controls_ratios.append(float(row[control]))
             exons_controls.append(row["exon"]+";"+str(row["start"]))
-
+            all_ratios.append(float(row[control]))
     plot_dict = {"controls": controls_ratios, "exons": exons_controls}
     if not "per_exon" in sample_object.analysis_json:
         sample_object.analysis_json["per_exon"] = defaultdict(dict)
@@ -149,9 +151,8 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
     sample_dict[sample_tag] = sample_ratios
     sample_dict["exons"] = sample_exons
     sample_df = pd.DataFrame.from_dict(sample_dict)
-    max_ratio = max(sample_ratios) + 0.1
+    max_ratio = max(all_ratios) + 0.1
 
-    max_ratio = -1.2
     min_ratio = -3.5
 
     # if min_ratio > -1:
@@ -199,7 +200,7 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         ax.axhline(0.433, color="blue")
         ax.axhline(-0.621, color="red")
         ax.set_xticklabels(unique_exons, rotation=90)
-        ax.set(ylim=(-3.5, 1.2))
+        ax.set(ylim=(-3.5, max_ratio))
         ax.set(ylabel="log2 ratio")
 
         for tick in ax.get_xticklabels():
@@ -299,6 +300,11 @@ class CnvPlot:
         if min_ratio <= -3:
             min_limit = -3.5
 
+        max_ratio = cnr_df[sample_ratio].max()
+        max_limit = 1
+        if max_ratio > max_limit:
+            max_limit = max_ratio+0.2
+        
         # Setting chromosome color
         palette_dict = defaultdict(dict)
         color_list = ["#4f6b76", "#b2bbc0"]
@@ -342,7 +348,7 @@ class CnvPlot:
             )
 
             # Setting y limits
-            ratio_plot.set(ylim=(min_limit, 1))
+            ratio_plot.set(ylim=(min_limit, max_limit))
             ratio_plot.set_xticks(xtick_list)
             ratio_plot.set_xticklabels(unique_chromosomes, rotation=40, size=15)
             ratio_plot.set_yticks(ratio_plot.get_yticks())

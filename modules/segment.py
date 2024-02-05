@@ -22,6 +22,9 @@ def custom_hmm_seg(sample_list, analysis_dict):
 
     for sample in sample_list:
 
+        if sample.analyzable == "False":
+            continue
+
         chr_dict = load_observations_by_chr(sample.ratio_file)
 
         segment_file_name = f"{sample.name}.segment.bed"
@@ -52,7 +55,6 @@ def custom_hmm_seg(sample_list, analysis_dict):
             idx = 0
             unmerged_list = []
             for item in chr_dict[chr]:
-               
                 state = states[idx]
                 phred = phred_scores[idx][int(state)]
                 tmp = item["region"].split("\t")
@@ -67,7 +69,6 @@ def custom_hmm_seg(sample_list, analysis_dict):
                     "state": str(state),
                     "phred": phred
                 }
-
                 unmerged_list.append(data_dict)
                 p.write(item["region"] + "\t" + str(state) + "\t" + str(phred)+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
                 idx += 1
@@ -187,7 +188,6 @@ def merge_segments(unmerged_list):
                 "state": first_dict["state"],
                 "phred": mean_phred
             }
-            # merged_list.append(first_dict)
             merged_list.append(new_segment)
             first_dict = region
             merging_items = []

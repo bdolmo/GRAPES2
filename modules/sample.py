@@ -10,7 +10,8 @@ class Sample:
         """
         Add a new attribute dinamically
         """
-        if not key or not value:
+
+        if not key:
             raise ValueError("Expected key and val to be provided.")
         setattr(self, key, value)
 

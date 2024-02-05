@@ -135,6 +135,8 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
         '##INFO=<ID=REGION,Number=1,Type=String,Description="Name region of the 4th field in the BED file">',
         '##INFO=<ID=NREGIONS,Number=1,Type=Integer,Description="Total number of baits affected">',
         '##INFO=<ID=LOG2RATIO,Number=1,Type=Float,Description="Log2 CNV ratio">',
+        '##INFO=<ID=GC,Number=1,Type=Float,Description="Mean GC-content of the affected region">',
+        '##INFO=<ID=MAP,Number=1,Type=Float,Description="Mean mappability of the affected region">',
         '##INFO=<ID=CN,Number=1,Type=Integer,Description="Copy Number">',
         '##INFO=<ID=BREAKREADS,Number=1,Type=Integer,Description="Number of reads supporting the breakpoint">',
         '##INFO=<ID=ASSEMBLED,Number=1,Type=Integer,Description="Number of reads assembled at breakpoints">',

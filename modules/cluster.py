@@ -77,8 +77,10 @@ def cluster_samples(corr_tsv, sample_list, min_correlation=0.90, min_refs=3, max
         nrefs = corr_dict[sample_name]["n_references"]
         if nrefs >= min_refs:
             sample.add("analyzable", "True")
+            sample.analysis_json["analyzable"] = "True"
         else:
             sample.add("analyzable", "False")
+            sample.analysis_json["analyzable"] = "False"
         sample.add("mean_correlation", corr_dict[sample_name]["mean_correlation"])
         sample.analysis_json["mean_correlation"] = corr_dict[sample_name]["mean_correlation"]
         ref_dict = sorted(
@@ -97,14 +99,14 @@ def calculate_depth_correlation(sample_list, analysis_dict):
     newdf = df
     names_list = []
     for sample in sample_list:
-        sample_tag = ("{}").format(sample.name)
-        sample_tag = ("{}_normalized_final").format(sample.name)
-
+        sample_tag = f"{sample.name}"
+        sample_tag = f"{sample.name}_normalized_final"
         newdf[sample.name] = df[sample_tag]
         names_list.append(sample.name)
     data = newdf[names_list]
-    dat_corr = data.corr(method="pearson")
+    dat_corr = data.corr(method="spearman")
 
+    dat_corr = (dat_corr + 1) / 2
     correaltion_tsv = str(Path(analysis_dict["output_dir"]) / "correlation.tsv")
     dat_corr.to_csv(correaltion_tsv, sep="\t", mode="w")
     analysis_dict["correlation_tsv"] = correaltion_tsv
@@ -116,11 +118,11 @@ def create_heatmap(sample_list, analysis_dict):
     df = pd.read_csv(analysis_dict["normalized_depth"], sep="\t")
     names_list = []
     for sample in sample_list:
-        sample_tag = ("{}_normalized_final").format(sample.name)
+        sample_tag = f"{sample.name}_normalized_final"
         df[sample.name] = df[sample_tag]
         names_list.append(sample.name)
     data = df[names_list]
-    dat_corr = data.corr()
+    dat_corr = data.corr(method="spearman")
 
     sns.set_context("talk")
     sns.set(font_scale=1.4)
