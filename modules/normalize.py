@@ -194,6 +194,7 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
         normalized_all_name = f"{analysis_dict['output_name']}.normalized.all.bed"
         normalized_all = str(Path(analysis_dict["output_dir"]) / normalized_all_name)
         analysis_dict["normalized_all"] = normalized_all
+
         combined.to_csv(normalized_all, sep="\t", header=True, index=False)
 
 
@@ -206,8 +207,6 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
     analysis_dict["normalized_per_base"] = normalized_per_base_file
     analysis_dict["normalized_per_base_pca"] = normalized_per_base_pca_file
 
-
-    # analysis_dict["normalized_depth"] = normalize_read_depth(analysis_dict["unified_raw_depth"])
 
     if not os.path.isfile(normalized_per_base_file):
         sample_list, analysis_dict = normalize_per_base(

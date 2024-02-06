@@ -186,6 +186,7 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
             chrom = fields[0]
             pos = fields[1]
             end = fields[2]
+
             info_fields = fields[3].split(';')
             svtype = [f for f in info_fields if "SVTYPE=" in f][0].split('=')[1]
             genotype = "./."
@@ -227,7 +228,7 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
             call_dict = {
                 "coordinates": f"{chrom}:{pos}-{end}",          
             }
-            for field in info_fields:
+            for idx,field in enumerate(info_fields):
                 tmp_field = field.split("=")
                 field_name = tmp_field[0]
                 if "PRECISE" in field:
@@ -235,11 +236,8 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
                 else:
                     if len(tmp_field) > 1:
                         field_value = tmp_field[1]
-                        call_dict[field_name] = field_value
-                if "REGION=" in field:
-                    if len(tmp_field) > 1:
-                        field_value = tmp_field[1]
                         call_dict[field_name] = field_value.replace(";", "_")
+                info_fields[idx] = field.replace(";", "_")
 
             call_dict["GENOTYPE"] = genotype
             sample.analysis_json["calls"].append(call_dict)

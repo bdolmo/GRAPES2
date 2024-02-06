@@ -49,7 +49,7 @@ def export_cnv_calls(sample_list, analysis_dict):
                 tmp = line.split("\t")
                 info = {
                     "SVTYPE": tmp[13],
-                    "REGION": tmp[3],
+                    "REGION": tmp[3].replace(";", "_"),
                     "GC": tmp[4],
                     "MAP": tmp[5],
                     "NREGIONS": tmp[8],
@@ -59,8 +59,6 @@ def export_cnv_calls(sample_list, analysis_dict):
                 }
                 info_str = "IMPRECISE;" + ";".join(f"{k}={v}" for k, v in info.items())
                 coordinates = f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}"
-
-
                 g.write(coordinates +"\t" + info_str +"\n")
         f.close()
         g.close()
@@ -140,9 +138,6 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
         a = pybedtools.BedTool(sample.raw_single_exon_calls)
         b = pybedtools.BedTool(analysis_dict["normalized_per_base"])
-
-        # cmd = f'bedtools intersect -a {sample.raw_single_exon_calls} -b {analysis_dict["normalized_per_base"]}'
-        # print(cmd)
         c = a.intersect(b, wa=True, wb=True, stream=True)
 
         filtered_single_cnv_name = f"{sample.name}.filtered.single.exon.calls.bed"
@@ -306,8 +301,6 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
         o = open(raw_seg_calls_bed, "w")
         p = open(seg_calls_bed, "w")
         q = open(raw_single_cnv_file, "w")
-
-
         ratio_dict = ratio_to_dict(sample.ratio_file)
 
         o.write("chr\tstart\tend\tregions\tn_regions\tlog2_ratio\tcn\tphred\tcnvtype\n")
@@ -489,13 +482,6 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
                 # chr11	19200000	26550000 GENE_ANNOT	133	0.5013	DEL
                 if line.startswith("chr\tstart"):
                     continue
-                # tmp = line.split("\t")
-                # chr = tmp[0]
-                # start = tmp[1]
-                # end = tmp[2]
-                # n_bins = tmp[3]
-                # ratio = tmp[5]
-                # cnvtype = ""
                 o.write(line+"\n")
         seg.close()
         o.close()
@@ -551,8 +537,12 @@ def get_segmented_cnvs(ratio_no_header, tmp_calls):
                 "gc": [],
                 "map": []
             }
-        calls_dict[variant]["ratios"].append(float(tmp[6]))
-        calls_dict[variant]["gc"].append(float(tmp[4]))
-        calls_dict[variant]["map"].append(float(tmp[5]))
-     
+            calls_dict[variant]["ratios"].append(float(tmp[6]))
+            calls_dict[variant]["gc"].append(float(tmp[4]))
+            calls_dict[variant]["map"].append(float(tmp[5]))
+        else:
+            calls_dict[variant]["ratios"].append(float(tmp[6]))
+            calls_dict[variant]["gc"].append(float(tmp[4]))
+            calls_dict[variant]["map"].append(float(tmp[5]))
+        
     return calls_dict

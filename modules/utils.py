@@ -46,6 +46,7 @@ def sort_bed_file(input_bed):
     if df.empty:
         return df
 
+    df['name'] = df['name'].replace(";", "_")
     # Replace 'chrX' and 'chrY' with temporary placeholders
     df['chr'] = df['chr'].replace({'chrM': 'chr0', 'chrX': 'chr23', 'chrY': 'chr24'})
 

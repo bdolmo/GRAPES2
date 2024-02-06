@@ -80,12 +80,12 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             sample.add("mean_norm_cov", mean_normalized_cov)
             sample.add("std_norm_cov", std_normalized_cov)
 
-            if analysis_dict["mappability_cutoff"]:
-                new_df = new_df[
-                        (new_df['map'] >= float(analysis_dict["mappability_cutoff"])) & 
-                        (new_df['gc'] >= float(analysis_dict["gc_content_low_cutoff"])) & 
-                        (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
-                    ]
+            # if analysis_dict["mappability_cutoff"]:
+            #     new_df = new_df[
+            #             (new_df['map'] >= float(analysis_dict["mappability_cutoff"])) & 
+            #             (new_df['gc'] >= float(analysis_dict["gc_content_low_cutoff"])) & 
+            #             (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
+            #         ]
             new_df.to_csv(ratio_file, sep="\t", mode="w", index=None)
         else:
             normalized_depth_tag = f"{sample.name}_normalized_final"
@@ -104,12 +104,12 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             sample.add("mean_norm_cov", mean_normalized_cov)
             sample.add("std_norm_cov", std_normalized_cov)
 
-            if analysis_dict["mappability_cutoff"]:
-                new_df = new_df[
-                        (new_df['map'] >= float(analysis_dict["mappability_cutoff"])) & 
-                        (new_df['gc'] >= float(analysis_dict["gc_content_low_cutoff"])) & 
-                        (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
-                    ]
+            # if analysis_dict["mappability_cutoff"]:
+            #     new_df = new_df[
+            #             (new_df['map'] >= float(analysis_dict["mappability_cutoff"])) & 
+            #             (new_df['gc'] >= float(analysis_dict["gc_content_low_cutoff"])) & 
+            #             (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
+            #         ]
             df_list.append(new_df)
 
     result = reduce(

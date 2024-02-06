@@ -10,6 +10,7 @@ from modules.sample import Sample
 from modules.params import *
 from modules.gc_content import annotate_gc
 from modules.mappability import annotate_mappability
+from modules.utils import sort_bed_file
 
 
 def launch_read_depth(sample_list, analysis_dict, ngs_utils, ann_dict):
@@ -27,6 +28,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     unified_depth_name = f'{analysis_dict["output_name"]}.read.counts.bed'
     unified_raw_depth = str(Path(analysis_dict["output_dir"]) / unified_depth_name)
     analysis_dict["unified_raw_depth"] = unified_raw_depth
+
 
     per_base_coverage_name = ("{}.per.base.coverage.bed").format(
         analysis_dict["output_name"]

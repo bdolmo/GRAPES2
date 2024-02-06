@@ -70,6 +70,7 @@ def initialize(args):
 
     analysis_dict["output_name"] = os.path.basename(analysis_dict["output_dir"])
     analysis_dict["list_genes_to_plot"] = []
+
     if args.plot_gene is not None:
         analysis_dict["list_genes_to_plot"] = args.plot_gene.replace(" ", "").split(",")
     analysis_dict["force"] = args.force
