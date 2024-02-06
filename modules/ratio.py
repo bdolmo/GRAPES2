@@ -86,9 +86,6 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
                         (new_df['gc'] >= float(analysis_dict["gc_content_low_cutoff"])) & 
                         (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
                     ]
-
-
-
             new_df.to_csv(ratio_file, sep="\t", mode="w", index=None)
         else:
             normalized_depth_tag = f"{sample.name}_normalized_final"
@@ -113,8 +110,6 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
                         (new_df['gc'] >= float(analysis_dict["gc_content_low_cutoff"])) & 
                         (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
                     ]
-
-
             df_list.append(new_df)
 
     result = reduce(

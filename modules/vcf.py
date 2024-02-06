@@ -214,6 +214,9 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
                         info_fields[idx] = "KDIV=."
                     if field.startswith("MBQ="):
                         info_fields[idx] = "MBQ=."
+            
+
+
             svlen = int(end)-int(pos)
             
             # Construct the INFO field for VCF
@@ -231,11 +234,14 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
                 field_name = tmp_field[0]
                 if "PRECISE" in field:
                     call_dict["precision"] = field
-
                 else:
                     if len(tmp_field) > 1:
                         field_value = tmp_field[1]
                         call_dict[field_name] = field_value
+                if "REGION=" in field:
+                    it len(tmp_field) > 1:
+                        call_dict[field_name] = field_value.replace(";", "_")
+
             call_dict["GENOTYPE"] = genotype
             sample.analysis_json["calls"].append(call_dict)
 

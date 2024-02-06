@@ -24,7 +24,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     """ """
     analysis_dict = annotate_gc(analysis_dict)
     analysis_dict = annotate_mappability(analysis_dict, ann_dict)
-    unified_depth_name = ("{}.read.counts.bed").format(analysis_dict["output_name"])
+    unified_depth_name = f"{analysis_dict["output_name"]}.read.counts.bed"
     unified_raw_depth = str(Path(analysis_dict["output_dir"]) / unified_depth_name)
     analysis_dict["unified_raw_depth"] = unified_raw_depth
 
@@ -49,7 +49,6 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     if not os.path.isfile(unified_raw_depth) and not os.path.isfile(
         per_base_coverage_file
     ):
-
         msg = f' INFO: Extracting coverage for {analysis_dict["output_name"]}'
         logging.info(msg)
 
@@ -58,9 +57,6 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         )
         output = p1.stdout.decode("UTF-8")
         error = p1.stderr.decode("UTF-8")
-
-        print(output)
-        print(error)
 
     if os.path.isfile(per_base_coverage_file):
         if not check_first_line(per_base_coverage_file):
