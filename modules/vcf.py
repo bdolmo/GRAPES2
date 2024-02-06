@@ -239,7 +239,7 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
                         field_value = tmp_field[1]
                         call_dict[field_name] = field_value
                 if "REGION=" in field:
-                    it len(tmp_field) > 1:
+                    if len(tmp_field) > 1:
                         call_dict[field_name] = field_value.replace(";", "_")
 
             call_dict["GENOTYPE"] = genotype
