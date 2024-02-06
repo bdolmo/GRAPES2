@@ -139,7 +139,7 @@ def main(args):
 
         with open(output_json, 'w') as f:
             json.dump(json_data, f)
-    remove_tmp_files(args.output_dir)
+    # remove_tmp_files(args.output_dir)
 
 
 def parse_arguments():
@@ -245,6 +245,27 @@ def parse_arguments():
         default=None,
         help="Plot gene log2 ratios by exon",
         dest="plot_gene",
+    )
+    parser.add_argument(
+        "--mappability_cutoff",
+        type=float,
+        default=90,
+        help="Filter out bins with low mappability",
+        dest="mappability_cutoff",
+    )
+    parser.add_argument(
+        "--gc_content_low_cutoff",
+        type=float,
+        default=10,
+        help="Lower cutoff for GC content filtering",
+        dest="gc_content_low_cutoff",
+    )
+    parser.add_argument(
+        "--gc_content_high_cutoff",
+        type=float,
+        default=90,
+        help="Upper cutoff for GC content filtering",
+        dest="gc_content_high_cutoff",
     )
 
 
