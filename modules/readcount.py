@@ -24,7 +24,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     """ """
     analysis_dict = annotate_gc(analysis_dict)
     analysis_dict = annotate_mappability(analysis_dict, ann_dict)
-    unified_depth_name = f"{analysis_dict["output_name"]}.read.counts.bed"
+    unified_depth_name = f'{analysis_dict["output_name"]}.read.counts.bed'
     unified_raw_depth = str(Path(analysis_dict["output_dir"]) / unified_depth_name)
     analysis_dict["unified_raw_depth"] = unified_raw_depth
 
