@@ -21,6 +21,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.decomposition import TruncatedSVD
 from sklearn.utils.extmath import randomized_svd
 from statsmodels.nonparametric.smoothers_lowess import lowess
+from .baseline_db import calculate_bed_md5, import_baselines_to_df
 
 
 def normalize_read_depth(bed_file, window_size=100):
@@ -127,8 +128,10 @@ def svd_noise_reduction(df, var_cutoff=0.9, max_components=25):
 
 def launch_normalization(sample_list, analysis_dict, ann_dict):
     """ """
-    for sample in sample_list:
 
+    analysis_dict["bed_md5"] = calculate_bed_md5(analysis_dict["bed"])
+
+    for sample in sample_list:
         # Load a dataframe of raw coverage data
         df = pd.read_csv(analysis_dict["unified_raw_depth"], sep="\t")
 
@@ -148,7 +151,13 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
 
         # Export ontarget exon-level normalized depth
         df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
+    else:
+        df = pd.read_csv(analysis_dict["normalized_depth"], sep="\t")
 
+    if analysis_dict["use_baseline_db"]:
+        df = import_baselines_to_df(analysis_dict, df)
+
+    df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
 
     normalized_offtarget_name = f"{analysis_dict['output_name']}.normalized.offtarget.bed"
     normalized_offtarget = str(Path(analysis_dict["output_dir"]) / normalized_offtarget_name)
@@ -163,7 +172,6 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
             # Export offtarget normalized depth
             df.to_csv(normalized_offtarget, sep="\t", mode="w", index=None)
     
-
     if os.path.isfile(normalized_depth) and os.path.isfile(normalized_offtarget):
 
         # Load the two BED files into pandas DataFrames
@@ -177,7 +185,6 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
         combined = pd.concat([bed1, bed2])
         # Reset index to ensure no duplicate indices
         combined.reset_index(drop=True, inplace=True)
-        # print(combined)
 
         # Set column names for the combined DataFrame
         combined.columns = col_names
@@ -188,7 +195,6 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
 
         combined = combined.reindex(index=order_by_index(combined.index, index_natsorted(combined['chr'])))
         combined = combined.sort_values(['chr', 'start'])
-
 
         # Write the sorted DataFrame to a new BED file
         normalized_all_name = f"{analysis_dict['output_name']}.normalized.all.bed"
@@ -212,7 +218,6 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
         sample_list, analysis_dict = normalize_per_base(
             sample_list, analysis_dict, norm_factors
         )
-    
 
     return sample_list, analysis_dict
 
@@ -297,7 +302,7 @@ def normalize_exon_level(input_bed, sample_list, fields):
     df = pd.read_csv(input_bed, sep="\t")
 
     df['length'] = df['end'] - df['start']
-    df = df[df['length'] > 10]
+    # df = df[df['length'] > 10]
 
     sample_names = [sample.name for sample in sample_list ]
 
@@ -305,7 +310,7 @@ def normalize_exon_level(input_bed, sample_list, fields):
     df['median_coverage'] = df[sample_names].median(axis=1)
 
     # Filter rows where median coverage is less than the threshold
-    df = df[df['median_coverage'] >= 30]
+    # df = df[df['median_coverage'] >= 30]
 
     # Drop the 'median_coverage' column as it's not needed anymore
     df = df.drop(columns=['median_coverage'])

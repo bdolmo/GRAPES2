@@ -7,6 +7,98 @@ import os
 import pysam
 
 
+def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -> float:
+    samfile = pysam.AlignmentFile(bam, "rb")
+    fastafile = pysam.FastaFile(ref_fasta)  # Load the reference genome
+    snv_allele_frequencies = []
+    average_af = 0
+
+    snv_dict = []
+    total_compatible_vars = 0
+    perc_compatible = 0
+    # Use mpileup to analyze the region covered by the CNV/SV
+    for pileupcolumn in samfile.pileup(chrom, start-1, end, stepper='samtools', min_mapping_quality=20, min_base_quality=13):
+        if start <= pileupcolumn.pos + 1 <= end:
+            pos = pileupcolumn.pos
+            ref_base = fastafile.fetch(chrom, pos, pos+1).upper()  # Fetch the reference base
+            total_count = 0
+            variant_counts = {}
+
+            for pileupread in pileupcolumn.pileups:
+                if not pileupread.is_del and not pileupread.is_refskip:
+                    base = pileupread.alignment.query_sequence[pileupread.query_position].upper()
+                    if base != ref_base:  # Check if the base is different from the reference
+                        variant_counts[base] = variant_counts.get(base, 0) + 1
+                    total_count += 1
+
+            # Calculate AF for each detected variant within the CNV/SV
+            for base, count in variant_counts.items():
+                if total_count > 0:
+                    af = round(count / total_count, 3)
+
+                    if total_count > 30 and count > 10:  # Apply filtering criteria for variant calling
+
+                        if cnv_type == "DUP" and af == 1:
+                            continue
+
+                        is_compatible = is_vaf_compatible_with_cnv(af, cnv_type, copy_number)
+                        var_dict = {
+                            "chromosome": chrom,
+                            "pos": pos,
+                            "ref": ref_base,
+                            "alt": base,
+                            "depth": total_count,
+                            "allele_depth": count,
+                            "alele_frequency": af,
+                            "compatible": is_compatible
+                        }
+                        if is_compatible:
+                            total_compatible_vars+=1
+
+                        snv_dict.append(var_dict)
+                        snv_allele_frequencies.append(af)
+
+    # Calculate and annotate average AF if any SNVs were found
+    if snv_allele_frequencies:
+        average_af = round(sum(snv_allele_frequencies) / len(snv_allele_frequencies),3)
+
+        perc_compatible = round((total_compatible_vars/len(snv_dict)),3)
+
+    # Close files
+    samfile.close()
+    fastafile.close()
+    return snv_dict, average_af, perc_compatible
+
+
+def is_vaf_compatible_with_cnv(vaf, cnv_type, copy_number=2):
+    """
+    Check if a Variant Allele Frequency (VAF) is compatible with a given Copy Number Variation (CNV),
+    taking into account specific expectations for deletions and duplications.
+    """
+    tolerance = 0.1  # Adjust tolerance as necessary
+
+    if cnv_type == 'DEL':
+        # For a deletion, expect the VAF to be at least 0.8
+        return vaf >= 0.8
+    elif cnv_type == 'DUP':
+
+        # Define expected VAFs based on the number of extra copies
+        if copy_number == 3:  # One extra copy
+            expected_vaf = 1 / 3
+            if abs(vaf-expected_vaf) <= tolerance:
+                return True
+            expected_vaf = 2 / 3
+            if abs(vaf-expected_vaf) <= tolerance:
+                return True
+            else:
+                return False    
+        elif copy_number == 4:  # Two extra copies
+            expected_vaf = 2 / 4
+        
+        return abs(vaf - expected_vaf) <= tolerance
+
+
+
 def get_reference_contigs_from_bam(bam_file_path):
     """
     Retrieve a list of reference contigs from the header of a BAM file.
@@ -78,10 +170,12 @@ def annotate_ontarget_overlaps(bed, roi_bed):
             overlap_size = int(feature[-1])
 
             # Add 'ON_TARGET' field based on overlap
-            if overlap_size > 0:
-                annotated_feature = output_line + ";ON_TARGET=1\n"
-            else:
-                annotated_feature = output_line + ";ON_TARGET=0\n"
+            annotated_feature = output_line
+            if not "ON_TARGET" in annotated_feature:
+                if overlap_size > 0:
+                    annotated_feature = output_line + ";ON_TARGET=1\n"
+                else:
+                    annotated_feature = output_line + ";ON_TARGET=0\n"
             
             if not annotated_feature in seen_records:
                 out_f.write(annotated_feature)
@@ -92,7 +186,7 @@ def annotate_ontarget_overlaps(bed, roi_bed):
     os.rename(output_bed, bed)
     
 
-def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
+def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
     """
     Convert a BED file to a VCF file, using reference contigs extracted from the given BAM file to populate the VCF header.
 
@@ -141,8 +235,12 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
         '##INFO=<ID=BREAKREADS,Number=1,Type=Integer,Description="Number of reads supporting the breakpoint">',
         '##INFO=<ID=ASSEMBLED,Number=1,Type=Integer,Description="Number of reads assembled at breakpoints">',
         '##INFO=<ID=PE,Number=1,Type=Integer,Description="Number of paired-end reads supporting the SV">',
+        '##INFO=<ID=ZSCORE,Number=1,Type=Float,Description="Z-score of the CNV call">',
         '##INFO=<ID=CNV_SCORE,Number=1,Type=Float,Description="Phred score of the CNV call">',
         '##INFO=<ID=MBQ,Number=1,Type=Integer,Description="Mean Base Quality in phred scale">',
+        '##INFO=<ID=MBAF,Number=1,Type=Float,Description="Mean B-Allele Frequency for overlapping SNV">',
+        '##INFO=<ID=SNV,Number=1,Type=String,Description="Total overlapping SNVs">',
+        '##INFO=<ID=BAF_COMPAT_SNV,Number=1,Type=String,Description="Ratio of BAF-compatible SNVs with an overlapping CNV">',
         '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total depth">',
         '##INFO=<ID=CALLER,Number=1,Type=String,Description="Caller name">',
         '##INFO=<ID=ON_TARGET,Number=1,Type=Integer,Description="On-target call(1) or off-target(0)">',
@@ -182,14 +280,18 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
     with open(output_vcf, 'w') as vcf_file:
         vcf_file.write('\n'.join(vcf_header) + '\n')
         for line in bed_records:
+
             fields = line.strip().split('\t')
             chrom = fields[0]
             pos = fields[1]
             end = fields[2]
+            filter_tag = "."
 
             info_fields = fields[3].split(';')
             svtype = [f for f in info_fields if "SVTYPE=" in f][0].split('=')[1]
             genotype = "./."
+            baf_compat_snv = "."
+            cn = ""
             for field in info_fields:
                 if field.startswith("CN="):
                     cn = int(field.replace("CN=", ""))
@@ -197,6 +299,22 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
                 if field.startswith("AF="):
                     af = float(field.replace("AF=", ""))
                     genotype = define_genotype_based_on_af(af)
+
+            snv_list = []
+            baf = "."
+            if cn:
+                # annotate overlapping SNV
+                snv_list, baf, baf_compat_snv = annotate_snv_baf(bam, ref_fasta, chrom, int(pos), int(end), svtype, cn)
+
+                if len(snv_list) > 0 and baf_compat_snv < 0.8:
+                    filter_tag = "Incompatible_BAF"
+
+            str_snv_list = []
+            out_snv = "."
+            for snv_dict in snv_list:
+                str_snv_list.append(str(snv_dict))
+            if str_snv_list:
+                out_snv = ','.join(str_snv_list)
 
             ci_pos, ci_end = [0, 0], [0, 0]  # Default CI values
             # Check if the variant is within any BED region
@@ -219,7 +337,11 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
             svlen = int(end)-int(pos)
             
             # Construct the INFO field for VCF
+            info_fields.insert(2, f"BAF_COMPAT_SNV={str(baf_compat_snv)}")
+            info_fields.insert(2, f"SNV={str(out_snv)}")
+            info_fields.insert(2, f"MBAF={str(baf)}")
             info_fields.insert(2, "CALLER=GRAPES2")
+            info_fields.insert(2, "SOURCE=GRAPES2")
             info_fields.insert(2, f"CIEND=0,{ci_end[1]}")
             info_fields.insert(2, f"CIPOS={ci_pos[0]},0")
             info_fields.insert(2, f"SVLEN={svlen}")
@@ -245,7 +367,7 @@ def bed_to_vcf(bed, roi_bed, bam, output_vcf, sample):
             info = ';'.join(info_fields)
             # Create the VCF entry
             alt = f'<{svtype}>'
-            vcf_entry = f'{chrom}\t{pos}\t.\tN\t{alt}\t.\t.\t{info}\tGT\t{genotype}\n'
+            vcf_entry = f'{chrom}\t{pos}\t.\tN\t{alt}\t.\t{filter_tag}\t{info}\tGT\t{genotype}\n'
             vcf_file.write(vcf_entry)
     vcf_file.close()
     return sample

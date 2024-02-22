@@ -92,12 +92,13 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
                     gender = "Undefined"
                     mean_coverage = float(tmp[5])
                     mean_coverage_X = float(tmp[-1])
-                    threshold = 1.5  
+                    threshold = 0.8 
                     ratio = round(mean_coverage / mean_coverage_X,3) if mean_coverage_X > 0 else 0
                     if ratio >= threshold:
-                        gender = "Male"
-                    elif ratio > 0 and ratio < threshold:
                         gender = "Female"
+                    elif ratio > 0 and ratio < threshold-0.2:
+                        gender = "Male"
+                        
                     sample.add("ontarget_reads", int(tmp[2]))
                     sample.add("mean_coverage", float(tmp[5]))
                     sample.add("mean_coverage_X", float(tmp[-1]))

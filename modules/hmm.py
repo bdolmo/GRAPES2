@@ -297,6 +297,7 @@ class CustomHMM:
 
         prev = np.zeros((T - 1, M))
         phred_scores = np.zeros((T, M))
+        prob_scores = np.zeros((T, M))
         for t in range(1, T):
 
             list_phreds = []
@@ -321,6 +322,7 @@ class CustomHMM:
                 # Cap at 60
                 Q_capped = np.clip(Q_rounded, 0, 60)
                 phred_scores[t, j] = np.max(Q_capped)
+                prob_scores[t, j] = np.max(probs)
 
                 # This is our most probable state given previous state at time t (1)
                 prev[t - 1, j] = np.argmax(probability)
@@ -354,7 +356,7 @@ class CustomHMM:
         for x in X:
             result.append(str(int(x)))
 
-        return result, phred_scores
+        return result, prob_scores
 
 
 if __name__ == "__main__":

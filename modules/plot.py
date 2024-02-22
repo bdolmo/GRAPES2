@@ -178,7 +178,7 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         # Boxplot
         sns.boxplot(x="exons", y="controls", data=combined_df, showfliers=False, color="#d4ebf2", ax=ax)
 
-        # Determine unique exons for x-axis positions
+        # Determine unique exons for x-axis po+-*/r4de xcsitions
         unique_exons = combined_df['exons'].unique()
 
         # Scatter plot for red and black points
@@ -215,38 +215,55 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         
 
 def plot_single_exon_cnv(df, sample, variant_title):
-    """ """
-    fig = plt.figure(figsize=(10,6))
+    """Plots single exon CNVs with advanced visualization and aesthetics."""
+    # Set the style
+    sns.set(style="whitegrid", font_scale=1.2)
     
-    # Get the columns for the samples based on their position in the dataframe
+    # Create a color palette that's visually appealing and accessible
+    primary_color = "#D55E00"  # A distinct color for the primary sample
+    secondary_color_palette = sns.light_palette("#0072B2", len(df.columns[4:]), reverse=True)
+    
+    # Adjusting the figure size and resolution
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    # Plotting logic
     sample_cols = df.columns[4:]
     df["Position"] = df.index + df["start"].astype(int)
-    # Plot each sample
+    
     for i, col in enumerate(sample_cols):
-        if i == 0:  # This is the first sample
-            sns.lineplot(data=df, x=df["Position"], y=col, color='red', label=col)
-        else:
-            sns.lineplot(data=df, x=df["Position"], y=col, color='grey', label='_nolegend_')
+        if i == 0:  # Highlight the primary sample
+            sns.lineplot(x=df["Position"], y=df[col], ax=ax1, label=col, color=primary_color, linewidth=2.5)
+        else:  # Plot secondary samples with progressively lighter shades
+            sns.lineplot(x=df["Position"], y=df[col], ax=ax1, label='_nolegend_', color=secondary_color_palette[i], linewidth=1.5, linestyle='--')
+    
+    ax1.set_ylabel("Log2 Ratio", fontsize=14)
+    ax1.set_xlabel("Position", fontsize=14)
+    ax1.set_title(variant_title, fontsize=16, fontweight='bold')
+    ax1.set_ylim(-3.1, 1.25)
 
-    plt.ylabel("Log2 ratio")
-    plt.xlabel("Position")
-    plt.title(variant_title)
-    # plt.ylim(-2, 1.3)
+    # Enhance readability with custom ticks and gridlines
+    ax1.grid(True, which='major', linestyle='--', linewidth='0.5', color='gray')
+    ax1.legend(title="Controls", title_fontsize='13', fontsize='12', loc='upper right')
+    
+    # Secondary Y-axis for copy number
+    ax2 = ax1.twinx()
+    ax2.set_ylim(-3.1, 1.25)
+    ax2.set_yticks([-3, -1, 0, 0.584, 1])
+    ax2.set_yticklabels([0, 1, 2, 3, 4], fontsize=12)
+    ax2.set_ylabel("Copy Number", fontsize=14)
+    
+    # Further style enhancements
+    ax1.spines['top'].set_visible(False)
+    ax2.spines['top'].set_visible(False)
+    
+    sns.despine(right=False, ax=ax1)  # Removes the right spine for the primary y-axis
+    sns.despine(ax=ax2, left=True)  # Removes the left spine for the secondary y-axis, keeping the right spine visible
 
-    # Add a secondary axis for the copy number
-    ax2 = plt.twinx()
-    ax2.set_ylim(-2, 1.3)  # Set the same limits for the secondary y-axis
-    # Set the tick labels for the secondary y-axis
-    ax2.set_yticks([-3, -1, 0, 0.584, 1])  # log2 ratios for copy numbers 0, 1, 2, 3, 4
-    ax2.set_yticklabels([0, 1, 2, 3, 4])  # Corresponding copy numbers
-    ax2.set_ylabel("Copy number")  # Set label for the secondary y-axis
+    # Save the plot
+    png_file = os.path.join(sample.sample_folder, f"{variant_title.replace(' ', '_')}.png")
+    plt.savefig(png_file, format='png', dpi=300, bbox_inches='tight')
 
-    png_file = os.path.join(sample.sample_folder, variant_title)
-    plt.savefig(png_file, format='png', dpi=300)
-    fig.clear()
-    fig.clf()
-
-    plt.close()
+    # Clear the figure to free memory
     plt.close(fig)
 
 

@@ -33,13 +33,16 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
 
     for sample in sample_list:
 
+        if sample.analyzable == "False":
+            continue
+
         msg = f" INFO: Calculating coverage ratios for sample {sample.name}"
         logging.info(msg)
 
         baseline_samples = []
         num = 0
         for oth in sample.references:
-            if num > 10:
+            if num > 15:
                 break
             # normalized_depth_tag = f"{oth[0]}_normalized_final"
             normalized_depth_tag = f"{oth[0]}_normalized_final"
@@ -111,15 +114,15 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             #             (new_df['gc'] <= float(analysis_dict["gc_content_high_cutoff"]))
             #         ]
             df_list.append(new_df)
-
-    result = reduce(
-        lambda df1, df2: pd.merge(
-            df1, df2, on=["chr", "start", "end", "exon", "gc", "map"]
-        ),
-        df_list,
-    )
-    result.to_csv(all_ratios, sep="\t", mode="w", index=None)
-    analysis_dict["all_ratios"] = all_ratios
+    if df_list:
+        result = reduce(
+            lambda df1, df2: pd.merge(
+                df1, df2, on=["chr", "start", "end", "exon", "gc", "map"]
+            ),
+            df_list,
+        )
+        result.to_csv(all_ratios, sep="\t", mode="w", index=None)
+        analysis_dict["all_ratios"] = all_ratios
 
 
     return sample_list, analysis_dict

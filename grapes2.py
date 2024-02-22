@@ -20,7 +20,7 @@ from modules.call import (
     call_raw_cnvs,
     filter_single_exon_cnv,
     unify_raw_calls,
-    export_cnv_calls,
+    export_cnv_calls_to_bed,
 )
 from modules.vcf import bed_to_vcf
 from modules.utils import remove_tmp_files
@@ -102,7 +102,7 @@ def main(args):
     sample_list = call_cnvs(sample_list, args.upper_del_cutoff, 
         args.lower_dup_cutoff, args.min_zscore)
 
-    sample_list = export_cnv_calls(sample_list, analysis_dict)
+    sample_list = export_cnv_calls_to_bed(sample_list, analysis_dict)
 
     for sample in sample_list:
         if sample.analyzable == "False":
@@ -130,7 +130,7 @@ def main(args):
         merged_bed = os.path.join(args.output_dir, f"{sample.name}.GRAPES2.bed")
         merge_bed_files(cnv_bed, sv_bed, merged_bed)
 
-        sample = bed_to_vcf(merged_bed, args.bed, sample.bam, final_vcf, sample)
+        sample = bed_to_vcf(merged_bed, args.bed, sample.bam, args.reference, final_vcf, sample)
 
         json_data = json.dumps(sample.analysis_json, indent=2)
 
@@ -214,6 +214,18 @@ def parse_arguments():
         action="store_true", 
         dest="force",
     )
+    parser.add_argument(
+        "--use_baseline_db",
+        action="store_true", 
+        dest="use_baseline_db",
+    )
+
+    parser.add_argument(
+        "--baseline_db",
+        help="SQLite database for reference baselines",
+        dest="baseline_db",
+    )
+
     parser.add_argument(
         "--upper_del_cutoff",
         type=float,
