@@ -299,6 +299,9 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
             Q = -10 * np.log10(error_probs)
             Q_rounded = np.round(Q)
             Q_capped = np.clip(Q_rounded, 0, 60)
+            if int(cn) > len(probs):
+                cn = str(len(probs))
+
             single_prob = probs[int(cn)]
 
             if signal_ratio <= upper_del_threshold or signal_ratio >= dup_threshold:

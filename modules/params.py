@@ -75,6 +75,12 @@ def initialize(args):
         analysis_dict["list_genes_to_plot"] = args.plot_gene.replace(" ", "").split(",")
     analysis_dict["force"] = args.force
 
+    if args.use_baseline_db:
+        if not args.baseline.db:
+            msg = "Missing baseline_db file (--baseline_db param must be filled)"
+            print(msg)
+            sys.exit()
+
     # load bam files from input directory
     bam_list = []
     if os.path.isdir(args.bam_dir):

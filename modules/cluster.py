@@ -102,8 +102,8 @@ def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.98, 
         if baseline_samples:
             baseline_samples.append(sample)
             baselines.append(baseline_samples)
-
-    calculate_baseline_median_depth(analysis_dict, sample_list, baselines)
+    if analysis_dict["use_baseline_db"]:
+        calculate_baseline_median_depth(analysis_dict, sample_list, baselines)
 
     # Gather data for reporting later
     for sample in sample_list:
