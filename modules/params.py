@@ -76,7 +76,7 @@ def initialize(args):
     analysis_dict["force"] = args.force
 
     if args.use_baseline_db:
-        if not args.baseline.db:
+        if not args.baseline_db:
             msg = "Missing baseline_db file (--baseline_db param must be filled)"
             print(msg)
             sys.exit()
@@ -94,6 +94,11 @@ def initialize(args):
 
     now = datetime.now()
     date_time = now.strftime("%Y%m%d")
+
+    splitted_bed = args.bed.replace(".bed", ".splitted.bed")
+    split_large_exons(args.bed, splitted_bed)
+    analysis_dict["bed"] = splitted_bed
+
 
     # Iterate through bam list and create sample objects
     sample_list = list()
@@ -115,3 +120,40 @@ def initialize(args):
         sample_list.append(sample)
 
     return sample_list, analysis_dict, ngs_utils_dict, annotation_dict
+
+
+def split_large_exons(input_bed, output_bed):
+    with open(input_bed, "r") as f:
+        with open(output_bed, "w") as o:
+            for line in f:
+                # Split the line by tab character
+                tmp = line.strip().split("\t")
+                start = int(tmp[1])
+                end = int(tmp[2])
+                exon = tmp[3]
+                size = end - start
+                
+                if size > 250:
+                    # Calculate the number of segments required
+                    num_segments = size // 250
+                    
+                    # Calculate the size of each segment
+                    segment_size = size // num_segments
+                    
+                    # Write the segments to the output bed file
+                    for i in range(num_segments):
+                        segment_start = start + i * segment_size
+                        segment_end = segment_start + segment_size
+                        o.write("\t".join([tmp[0], str(segment_start), str(segment_end), exon]))
+                        o.write("\n")
+                        
+                    # If there's a remaining part, write it as a separate segment
+                    remaining_size = size % num_segments
+                    if remaining_size > 0:
+                        segment_start = start + num_segments * segment_size
+                        segment_end = end
+                        o.write("\t".join([tmp[0], str(segment_start), str(segment_end), exon]))
+                        o.write("\n")
+                else:
+                    # If the exon size is not greater than 250 bp, just write it to the output file
+                    o.write(line)

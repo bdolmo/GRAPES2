@@ -55,7 +55,7 @@ def main(args):
 
     # Off-target depth extraction
     if args.offtarget:
-        analysis_dict = create_offtarget_bed(args.bed, args.output_dir, args.reference, 
+        analysis_dict = create_offtarget_bed(analysis_dict["bed"], args.output_dir, args.reference, 
             analysis_dict, ann_dict["mappability"], ann_dict["chromosomes"], ann_dict["blacklist"])
 
         extract_offtarget(sample_list, args.reference, ngs_utils_dict, analysis_dict)
@@ -66,7 +66,7 @@ def main(args):
             msg = f" INFO: Calling SV breakpoints on sample {sample.name}"
             logging.info(msg)
 
-            call_structural_variants(sample.bam, args.bed, args.reference, args.output_dir, 
+            call_structural_variants(sample.bam, analysis_dict["bed"], args.reference, args.output_dir, 
                 sample, analysis_dict, ngs_utils_dict, ann_dict)
 
     # Depth, gc, mappability extraction formatting
@@ -130,7 +130,7 @@ def main(args):
         merged_bed = os.path.join(args.output_dir, f"{sample.name}.GRAPES2.bed")
         merge_bed_files(cnv_bed, sv_bed, merged_bed)
 
-        sample = bed_to_vcf(merged_bed, args.bed, sample.bam, args.reference, final_vcf, sample)
+        sample = bed_to_vcf(merged_bed, analysis_dict["bed"], sample.bam, args.reference, final_vcf, sample)
 
         json_data = json.dumps(sample.analysis_json, indent=2)
 

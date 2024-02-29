@@ -310,8 +310,9 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 else:
                     svtype = "DUP"
                 # print(tmp_cnv_call, Q_capped, probs, error_probs, s2n_case, s2n_controls)
-                # print(sample.name, cnv_call, "s2n_controls:", median_cov_controls/std_cov_controls,"std_cov_controls:", std_cov_controls, "s2n_case:",s2n_case, "s2n_controls:", s2n_controls, "case_ratio:", signal_ratio, "median_cov_case:", median_cov_case,"median_cov_controls:", median_cov_controls, "zscore:", z_score)
-                if s2n_controls >= 5 and abs(z_score) > 2.5:
+                #if "sample11" in sample.name:
+                print(sample.name, cnv_call, "s2n_controls:", median_cov_controls/std_cov_controls,"std_cov_controls:", std_cov_controls, "s2n_case:",s2n_case, "s2n_controls:", s2n_controls, "case_ratio:", signal_ratio, "median_cov_case:", median_cov_case,"median_cov_controls:", median_cov_controls, "zscore:", z_score)
+                if s2n_controls >= 4 and abs(z_score) > 2.5:
                     tmp_cnv_call[-2] = str(single_prob)
                     cnv_call = '\t'.join(tmp_cnv_call)
                     o.write(cnv_call+"\t"+svtype+"\n")

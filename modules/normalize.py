@@ -32,7 +32,6 @@ def normalize_read_depth(bed_file, window_size=100):
     autosomal_df = df[df['chr'].str.lower().isin(['chr'+str(i) for i in range(1, 23)])]
     sex_df = df[df['chr'].str.lower().isin(['chrx', 'chry'])]
 
-
     # Define the samples columns
     samples = df.columns[6:]  # Assumes sample columns are from index 6 onwards
 
@@ -50,9 +49,7 @@ def normalize_read_depth(bed_file, window_size=100):
             gc_df['depth'] = gc_df['depth'].rolling(window_size, min_periods=30).median()
             # Assign the normalized depths back to the original DataFrame in their original order
             df[sample] = gc_df.sort_values('gc', ascending=False)['depth'].values
-            
         return df
-
 
     # Apply the normalization function to both DataFrames
     autosomal_df = normalize_df(autosomal_df)
