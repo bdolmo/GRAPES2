@@ -140,6 +140,8 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         sample_ratios.append(float(row[sample_tag]))
         all_ratios.append(float(row[sample_tag]))
         for control in controls:
+            if not control in row:
+                continue
             controls_ratios.append(float(row[control]))
             exons_controls.append(row["exon"]+";"+str(row["start"]))
             all_ratios.append(float(row[control]))
