@@ -300,7 +300,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
             Q_rounded = np.round(Q)
             Q_capped = np.clip(Q_rounded, 0, 60)
             if int(cn) > len(probs):
-                cn = str(len(probs))
+                cn = str(len(probs)-1)
 
             single_prob = probs[int(cn)]
 
