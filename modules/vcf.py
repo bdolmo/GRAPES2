@@ -52,11 +52,13 @@ def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -
                             "alele_frequency": af,
                             "compatible": is_compatible
                         }
-                        if is_compatible:
-                            total_compatible_vars+=1
 
-                        snv_dict.append(var_dict)
-                        snv_allele_frequencies.append(af)
+                        if af >= 0.1:
+                            if is_compatible:
+                                total_compatible_vars+=1
+
+                            snv_dict.append(var_dict)
+                            snv_allele_frequencies.append(af)
 
     # Calculate and annotate average AF if any SNVs were found
     if snv_allele_frequencies:
@@ -217,6 +219,7 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
 
     # Add the column header
     info_fields = [
+        '##FILTER=<ID=Incompatible_BAF,Description="Mean B-Allele Frequency is not compatible with the CNV">',
         '##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description="Imprecise structural variation">',
         '##INFO=<ID=PRECISE,Number=0,Type=Flag,Description="Precise structural variation">',
         '##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">',
