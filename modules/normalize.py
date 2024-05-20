@@ -84,41 +84,64 @@ def loess_normalization(df, sample_name, field):
     return df
 
 
-def svd_noise_reduction(df, var_cutoff=0.9, max_components=25):
-    # Iterate over each sample
+def pca_noise_reduction(df, var_cutoff=0.999999, max_components=100):
+    # Identify the range of columns to process
 
+    # Identify the range of columns to process, using your column name assumptions
     start_index = df.columns.get_loc('map') + 1
-    end_index = df.columns.get_loc('gc_bin')
-    depth_cols = [col for col in df.columns if col.endswith("_normalized_final")]
-    # depth_cols = df.columns[start_index:end_index]
-    # Center the data
+    end_index = df.columns.get_loc('gc_bin')-1
+    # Select columns that end with "_normalized_final" within that range
+    depth_cols = [col for col in df.columns[start_index:end_index]]
     # print(depth_cols)
+    # sys.exit()
+    # depth_cols = [col for col in df.columns if col.endswith("_normalized_final")]
 
-    colmeans = np.median(df[depth_cols], axis=0)
-    centered = df[depth_cols]-colmeans
+    # Normalize the data using Z-score normalization
+    scaler = StandardScaler()
+    X_normalized = scaler.fit_transform(df[depth_cols])
 
-    # Compute the SVD
-    U, S, V = randomized_svd(centered, n_components=max_components, n_oversamples=max_components)
+    # Perform PCA
+    pca = PCA(n_components=min(max_components, len(depth_cols)))
+    X_pca = pca.fit_transform(X_normalized)
 
-    # Determine the number of components to keep
-    prop_v = np.cumsum(S**2 / np.sum(S**2))
+    # Determine how many components to remove based on variance cutoff
+    variance_explained = np.cumsum(pca.explained_variance_ratio_)
+    print(variance_explained)
+
+    components_to_keep = np.where(variance_explained > var_cutoff)[0][0] + 1
+    print(components_to_keep)
+    # components_to_keep = 50
+    # if components_to_keep > 1:
+        # Exclude the first component and keep up to the remaining 'components_to_keep' components
+    X_reduced = X_pca[:, 4:]
+    # else:
+    #     # In case all significant variance is explained by the first component which you want to remove
+    #     X_reduced = np.zeros_like(X_pca[:, :1])  # Retain shape but set to zero if only the first component was significant
 
 
-    n_components = np.nonzero(prop_v > var_cutoff)[0][0]
-    n_components = 15
+    # X_reduced = X_pca
+    print(X_reduced)
 
-    X_projected = np.dot(centered, V[n_components:, :].T)
-    X_reconstructed = np.dot(X_projected, V[n_components:, :])
-    residuals = centered - X_reconstructed
-    shift_value = abs(np.min(residuals))
-    residuals += shift_value
+    # Reconstruct the data from the reduced number of components
+    X_reconstructed = pca.inverse_transform(np.hstack([X_reduced, np.zeros((X_reduced.shape[0], 1))]))
+    #X_reconstructed = pca.inverse_transform(X_reduced)
+    # Convert the reconstructed data back to the original DataFrame format
+    df_reconstructed = pd.DataFrame(X_reconstructed, columns=depth_cols, index=df.index)
 
-    # Add the residuals to the dataframe
-    #residual_cols = [col + '_normalized_final' for col in depth_cols]
+
+    # Shift the reconstructed data to ensure all values are non-negative
+    min_val = df_reconstructed.min().min()  # Find the smallest value in the DataFrame
+    if min_val < 0:
+        df_reconstructed -= min_val  # Shift values to make the smallest zero
+
+    # Replace original columns with reconstructed data
+
+    # Add the residuals back to the dataframe
     residual_cols = [col + '_normalized_svd' for col in depth_cols]
 
-
-    df[residual_cols] = pd.DataFrame(residuals, index=df.index)
+    for col in depth_cols:
+        newcol = col + "_normalized_final"
+        df[newcol] = df_reconstructed[col]
 
     return df
 
@@ -316,7 +339,7 @@ def normalize_exon_level(input_bed, sample_list, fields):
     msg = f" INFO: Normalizing exon level coverage by {fields_str}"
     logging.info(msg)
 
-    bins = np.arange(0, 105, 5) # assuming GC content is a fraction
+    bins = np.arange(0, 110, 10) # assuming GC content is a fraction
 
     # Create a new column 'gc_bin' using pd.cut
     df['gc_bin'] = pd.cut(df['gc'], bins)
@@ -407,7 +430,11 @@ def normalize_exon_level(input_bed, sample_list, fields):
                 normalized_final = f"{sample.name}_normalized_final"
                 df[normalized_final] = df[normalized_field]
 
-    # df = svd_noise_reduction(df)
+    # df_svd = pca_noise_reduction(df)
+    # df = df_svd
+
+    # normalized_svd_bed = input_bed.replace("read.counts.bed", "normalized.svd.bed")
+    # df_svd.to_csv(normalized_svd_bed, sep='\t', index=False)
      
     return df
 
@@ -445,19 +472,19 @@ def apply_normalization(row, cov_target, stats_dict, field, gc_bin_dict):
         row[median_field_chrY] = 0.01
 
     if row["chr"] == "chrX":
-        if gc_bin_size > 10:
+        if gc_bin_size > 30:
             norm_cov = round(
                 (row[cov_target] * stats_dict["median_cov_chrX"]) / row[median_field_chrX],
                 6,
             )
     elif row["chr"] == "chrY":
-        if gc_bin_size > 10:
+        if gc_bin_size > 30:
             norm_cov = round(
                 (row[cov_target] * stats_dict["median_cov_chrY"]) / row[median_field_chrY],
                 6,
             )
     else:
-        if gc_bin_size > 10:
+        if gc_bin_size > 30:
             norm_cov = round(
                 (row[cov_target] * stats_dict["median_cov_autosomes"])
                 / row[median_field_autosomes],

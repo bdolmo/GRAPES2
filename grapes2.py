@@ -21,6 +21,7 @@ from modules.call import (
     filter_single_exon_cnv,
     unify_raw_calls,
     export_cnv_calls_to_bed,
+    export_all_calls
 )
 from modules.vcf import bed_to_vcf
 from modules.utils import remove_tmp_files
@@ -128,9 +129,13 @@ def main(args):
             f"{sample.name}.GRAPES2.vcf")
 
         merged_bed = os.path.join(args.output_dir, f"{sample.name}.GRAPES2.bed")
+
+        sample.add("calls_bed", merged_bed)
         merge_bed_files(cnv_bed, sv_bed, merged_bed)
 
-        sample = bed_to_vcf(merged_bed, analysis_dict["bed"], sample.bam, args.reference, final_vcf, sample)
+        sample = bed_to_vcf(merged_bed, analysis_dict["bed"], sample.bam, args.reference, 
+            final_vcf, sample, args.min_gc, args.max_gc, args.min_mappability, args.min_size)
+
 
         json_data = json.dumps(sample.analysis_json, indent=2)
 
@@ -139,6 +144,10 @@ def main(args):
 
         with open(output_json, 'w') as f:
             json.dump(json_data, f)
+            
+    export_all_calls(sample_list, analysis_dict)
+
+
     # remove_tmp_files(args.output_dir)
 
 
@@ -247,6 +256,37 @@ def parse_arguments():
         help=".",
         dest="min_zscore",
     )
+    parser.add_argument(
+        "--min_size",
+        type=int,
+        default=10,
+        help="Minimum SV/CNV size to be reported",
+        dest="min_size"
+    )
+
+    parser.add_argument(
+        "--min_gc",
+        type=int,
+        default=20,
+        help="Minimum SV/CNV size to be reported",
+        dest="min_gc"
+    )
+
+    parser.add_argument(
+        "--max_gc",
+        type=int,
+        default=80,
+        help="Maximum",
+        dest="max_gc"
+    )
+    parser.add_argument(
+        "--min_mappability",
+        type=int,
+        default=30,
+        help="Minimum SV/CNV size to be reported",
+        dest="min_mappability"
+    )
+
     parser.add_argument(
         "--plot_normalization", 
         default=False, 

@@ -49,7 +49,6 @@ def import_baselines_to_df(analysis_dict, df):
     
     # retrieve latest baseline number
     # unique_baselines = set()
-
     baselines_depth_dict = {}
     max_n = 0
     for baseline in baselines:

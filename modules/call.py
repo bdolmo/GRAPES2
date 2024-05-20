@@ -23,14 +23,29 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def export_cnv_calls_to_bed(sample_list, analysis_dict):
-    """
-    Join CNV calls and export a single file
-    """
+def export_all_calls(sample_list, analysis_dict):
     all_calls_name = f'{analysis_dict["output_name"]}.all.calls.bed'
     all_calls_bed = str(Path(analysis_dict["output_dir"]) / all_calls_name)
     o = open(all_calls_bed, "w")
     o.write("sample\tchr\tstart\tend\tregion\tgc\tmap\tzscore\tn_regions\tlog2_ratio\tcopy_number\tprob_score\tx\tcnvtype\tstdev\n")
+    for sample in sample_list:
+        if sample.analyzable == "False":
+            continue
+        with open(sample.calls_bed) as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if line.startswith("chr\tstart"):
+                    continue
+                # print(line)
+                o.write(sample.name + "\t" + line + "\n")
+        f.close()
+    o.close()
+
+
+def export_cnv_calls_to_bed(sample_list, analysis_dict):
+    """
+    Join CNV calls and export a single file
+    """
 
     for sample in sample_list:
         if sample.analyzable == "False":
@@ -50,6 +65,10 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
                 # sample1.simulated	chr3	38591811	38598775	exon	50.252	100	-7.113	5	-0.892	1	0.990636622781486	1	DEL	0.077
 
                 tmp = line.split("\t")
+                stdev = float(tmp[-1])
+                if stdev >= 0.3:
+                    continue
+
                 info = {
                     "SVTYPE": tmp[-2],
                     "REGION": tmp[3].replace(";", "_"),
@@ -66,16 +85,6 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
                 g.write(coordinates +"\t" + info_str +"\n")
         f.close()
         g.close()
-
-        with open(sample.cnv_calls_bed) as f:
-            for line in f:
-                line = line.rstrip("\n")
-                if line.startswith("chr\tstart"):
-                    continue
-                # print(line)
-                o.write(sample.name + "\t" + line + "\n")
-        f.close()
-    o.close()
 
     return sample_list
 
@@ -259,7 +268,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
             candidate_cnvs[cnv_call]["dataframe"] = \
                 pd.DataFrame.from_records(candidate_cnvs[cnv_call]["list_rows"])
-            plot_single_exon_cnv(candidate_cnvs[cnv_call]["dataframe"], sample, variant_title)
+            # plot_single_exon_cnv(candidate_cnvs[cnv_call]["dataframe"], sample, variant_title)
 
             median_cov_case =  np.median(candidate_cnvs[cnv_call]["case_coverage"])
             median_cov_controls = np.median(candidate_cnvs[cnv_call]["controls_coverage"])
@@ -312,7 +321,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 # print(tmp_cnv_call, Q_capped, probs, error_probs, s2n_case, s2n_controls)
                 #if "sample11" in sample.name:
                 print(sample.name, cnv_call, "s2n_controls:", median_cov_controls/std_cov_controls,"std_cov_controls:", std_cov_controls, "s2n_case:",s2n_case, "s2n_controls:", s2n_controls, "case_ratio:", signal_ratio, "median_cov_case:", median_cov_case,"median_cov_controls:", median_cov_controls, "zscore:", z_score)
-                if s2n_controls >= 4 and abs(z_score) > 2.5:
+                if abs(z_score) > 2.5:
                     tmp_cnv_call[-2] = str(single_prob)
                     cnv_call = '\t'.join(tmp_cnv_call)
                     o.write(cnv_call+"\t"+svtype+"\n")
@@ -343,7 +352,6 @@ def get_gc_map_from_segment(chr, start, end, ratios_bed):
     os.remove(tmp_bed)
 
     return gc, map
-
 
 
 def get_single_rois_from_segment(chr, start, end, ratios_bed):
@@ -407,7 +415,6 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
         q = open(raw_single_cnv_file, "w")
         ratio_dict = ratio_to_dict(sample.ratio_file)
 
-
         ratio_file_no_header = sample.ratio_file.replace(".bed", ".noheader.bed")
         with open(ratio_file_no_header, "w") as fh:
             with open(sample.ratio_file, "r") as rh:
@@ -441,25 +448,29 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
 
                 zscore = round((log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio, 3)
                 cnvtype = ""
-
+                if mean_gc < 20 or mean_gc > 80:
+                    continue
+                size = int(end)-int(start)
+                if size < 10:
+                    continue
                 if cn == 2:
                     continue
-
                 if prob_score < 0.5:
                     continue
 
-                # if prob_score < 15:
-                #     continue
                 if log2_ratio <= upper_del_threshold or log2_ratio >= dup_threshold:
                     pass
                 else:
                     continue
+
                 if cn > 2:
-                    if log2_ratio >= dup_threshold and abs(zscore) > 2.5:
+                    if log2_ratio >= dup_threshold and abs(zscore) > 2:
                         cnvtype = "DUP"
                 else:
-                    if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
+                    # if log2_ratio <= upper_del_threshold:
+                    if log2_ratio <= upper_del_threshold and abs(zscore) > 2:
                         cnvtype = "DEL"
+
                 if cnvtype != "":
                     outline = f"{line}\t1\t{cnvtype}\n"
                     if int(n_regions) > 1:
@@ -470,10 +481,10 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                         tmp_outline.insert(4, str(zscore))
                         tmp_outline.insert(4, str(mean_map))
                         tmp_outline.insert(4, str(mean_gc))
+
                         outline = "\t".join(tmp_outline)
                         o.write(outline)
                         p.write(outline)
-
 
                         tmp_rois_list = get_single_rois_from_segment(chr, start, end, ratio_file_no_header)
                         for coord in tmp_rois_list:
@@ -487,7 +498,7 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                         tmp_regions = re.split('[, ;]', regions)
                         if len(tmp_regions) > 1:
                             gene = tmp_regions[-1]
-                        gene_plot, sample = plot_gene(sample.name, sample_list, gene, analysis_dict)
+                        # gene_plot, sample = plot_gene(sample.name, sample_list, gene, analysis_dict)
                     else:
                         coordinate = f"{chr}\t{start}\t{end}"
                         seen_roi_dict[coordinate] = coordinate
@@ -515,45 +526,46 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
         seg.close()
         o.close()
         p.close()
+        # if sample.name == "CA17390":
+        #     sys.exit()
+        # with open(sample.ratio_file) as f:
+        #     for line in f:
+        #         line = line.rstrip("\n")
+        #         if line.startswith("chr\tstart"):
+        #             continue
+        #         tmp = line.split("\t")
+        #         chr = tmp[0]
+        #         start = tmp[1]
+        #         end = tmp[2]
+        #         region = tmp[3]
+        #         gc = tmp[4]
+        #         map = tmp[5]
+        #         coordinate = f"{chr}\t{start}\t{end}"
+        #         if coordinate in seen_roi_dict:
+        #             continue
+        #         if analysis_dict["offtarget"] and  "pwindow" in region:
+        #             continue
 
-        with open(sample.ratio_file) as f:
-            for line in f:
-                line = line.rstrip("\n")
-                if line.startswith("chr\tstart"):
-                    continue
-                tmp = line.split("\t")
-                chr = tmp[0]
-                start = tmp[1]
-                end = tmp[2]
-                region = tmp[3]
-                gc = tmp[4]
-                map = tmp[5]
-                coordinate = f"{chr}\t{start}\t{end}"
-                if coordinate in seen_roi_dict:
-                    continue
-                if analysis_dict["offtarget"] and  "pwindow" in region:
-                    continue
+        #         #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
+        #         log2_ratio = float(tmp[-1])
+        #         fold_change = 2 ** (log2_ratio)
 
-                #chr1	26378363	26378374	NM_032588_8_9;TRIM63	45.450001	100.0	0.013
-                log2_ratio = float(tmp[-1])
-                fold_change = 2 ** (log2_ratio)
+        #         zscore = round((log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio,3)
 
-                zscore = round((log2_ratio-sample.mean_log2_ratio)/sample.std_log2_ratio,3)
+        #         cn = str(int( (fold_change * 2)+.5))
+        #         tmp_list = [chr, start, end, region, gc, map, str(zscore), "1", str(log2_ratio), cn, "60"]
 
-                cn = str(int( (fold_change * 2)+.5))
-                tmp_list = [chr, start, end, region, gc, map, str(zscore), "1", str(log2_ratio), cn, "60"]
-
-                if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
-                    cnvtype = "DEL"
-                    tmp_list.append(cn)
-                    tmp_list.append(cnvtype)
-                    q.write("\t".join(tmp_list) + "\n")
-                if log2_ratio >= dup_threshold and abs(zscore) > 2.5:
-                    cnvtype = "DUP"
-                    tmp_list.append(cn)
-                    tmp_list.append(cnvtype)
-                    q.write("\t".join(tmp_list) + "\n")
-        f.close()
+        #         if log2_ratio <= upper_del_threshold and abs(zscore) > 2.5:
+        #             cnvtype = "DEL"
+        #             tmp_list.append(cn)
+        #             tmp_list.append(cnvtype)
+        #             q.write("\t".join(tmp_list) + "\n")
+        #         if log2_ratio >= dup_threshold and abs(zscore) > 2.5:
+        #             cnvtype = "DUP"
+        #             tmp_list.append(cn)
+        #             tmp_list.append(cnvtype)
+        #             q.write("\t".join(tmp_list) + "\n")
+        # f.close()
         q.close()
     return sample_list
 
@@ -596,8 +608,8 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
         if sample.analyzable == "False":
             continue
 
-        msg = f" INFO: Calling CNVs on sample {sample.name}"
-        logging.info(msg)
+        # msg = f" INFO: Calling CNVs on sample {sample.name}"
+        # logging.info(msg)
 
         cnv_calls_name = f"{sample.name}.calls.bed"
         cnv_calls_bed = str(Path(sample.sample_folder) / cnv_calls_name)

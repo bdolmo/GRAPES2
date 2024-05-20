@@ -55,9 +55,7 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
 
         sample.add("ratio_file", ratio_file)
         if not os.path.isfile(ratio_file):
-
             normalized_depth_tag = f"{sample.name}_normalized_final"
-
             sample_ratio = f"{sample.name}_ratio"
             new_df = merged_df
             new_df[sample_ratio] = merged_df.apply(
@@ -71,14 +69,14 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
             new_df = new_df[["chr", "start", "end", "exon", "gc", "map", sample_ratio]]
             df_list.append(new_df)
 
-            mean_ratio = new_df[sample_ratio].mean()
-            std_ratio = new_df[sample_ratio].std()
+            mean_ratio = new_df[sample_ratio].median()
+            std_ratio = (new_df[sample_ratio] - mean_ratio).abs().mean()
 
             sample.add("mean_log2_ratio", mean_ratio)
             sample.add("std_log2_ratio", std_ratio)
 
             mean_normalized_cov = merged_df[normalized_depth_tag].mean()
-            std_normalized_cov = merged_df[normalized_depth_tag].std() 
+            std_normalized_cov = (merged_df[normalized_depth_tag] - mean_normalized_cov).abs().mean()
 
             sample.add("mean_norm_cov", mean_normalized_cov)
             sample.add("std_norm_cov", std_normalized_cov)
@@ -95,11 +93,11 @@ def calculate_coverage_ratios(sample_list, analysis_dict, log2=True):
 
             sample_ratio = f"{sample.name}_ratio"
             new_df = pd.read_csv(ratio_file, sep="\t")
-            mean_ratio = new_df[sample_ratio].mean()
-            std_ratio = new_df[sample_ratio].std()
+            mean_ratio = new_df[sample_ratio].median()
+            std_ratio = (new_df[sample_ratio] - mean_ratio).abs().mean()
 
             mean_normalized_cov = merged_df[normalized_depth_tag].mean()
-            std_normalized_cov = merged_df[normalized_depth_tag].std()
+            std_normalized_cov = (merged_df[normalized_depth_tag] - mean_normalized_cov).abs().mean()
 
             sample.add("mean_log2_ratio", mean_ratio)
             sample.add("std_log2_ratio", std_ratio)

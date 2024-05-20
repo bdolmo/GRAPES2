@@ -37,8 +37,8 @@ def custom_hmm_seg(sample_list, analysis_dict):
         )
         sample.add("segment_extended_file", segment_file_extended)
 
-        # if os.path.isfile(segment_file):
-        #     continue
+        if os.path.isfile(segment_file):
+            continue
 
         o = open(segment_file, "w")
         p = open(segment_file_extended, "w")

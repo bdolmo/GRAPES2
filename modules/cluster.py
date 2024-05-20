@@ -40,7 +40,7 @@ def launch_sample_clustering(sample_list, analysis_dict):
     return sample_list, analysis_dict
 
 
-def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.98, min_refs=1, max_refs=15):
+def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.95, min_refs=1, max_refs=15):
     """ """
     n_line = 0
     header = []
@@ -72,7 +72,7 @@ def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.98, 
                 for corr in tmp[1:]:
                     sample = header[idx]
                     if sample != current_sample:
-                        if float(corr) >= min_correlation and float(corr) < 1:
+                        if float(corr) >= min_correlation:
                             tmp_corr_dict[sample] = str(round(float(corr), 3))
                             tmp_corr_list.append(round(float(corr), 3))
                             n_refs += 1
@@ -170,10 +170,13 @@ def create_heatmap(sample_list, analysis_dict):
 
     sns.set_context("talk")
     sns.set(font_scale=1.4)
-    heatmap = sns.clustermap(dat_corr, metric="correlation", cmap="coolwarm")
-    correlation_plot = str(
-        Path(analysis_dict["output_dir"]) / "correlation.heatmap.png"
-    )
-    heatmap.figure.savefig(correlation_plot, dpi=400)
+    try:
+        heatmap = sns.clustermap(dat_corr, metric="correlation", cmap="coolwarm")
+        correlation_plot = str(
+            Path(analysis_dict["output_dir"]) / "correlation.heatmap.png"
+        )
+        heatmap.figure.savefig(correlation_plot, dpi=400)
+    except:
+        pass
 
     return analysis_dict

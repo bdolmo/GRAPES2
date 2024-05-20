@@ -264,7 +264,6 @@ class CustomHMM:
 
         return posterior_probs
 
-
     def decode(self):
         """
         O: Observations

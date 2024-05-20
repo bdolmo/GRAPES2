@@ -17,19 +17,36 @@ def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -
     total_compatible_vars = 0
     perc_compatible = 0
     # Use mpileup to analyze the region covered by the CNV/SV
-    for pileupcolumn in samfile.pileup(chrom, start-1, end, stepper='samtools', min_mapping_quality=20, min_base_quality=13):
+    for pileupcolumn in samfile.pileup(chrom, start-1, end, stepper='samtools', min_mapping_quality=50, min_base_quality=20):
         if start <= pileupcolumn.pos + 1 <= end:
             pos = pileupcolumn.pos
-            ref_base = fastafile.fetch(chrom, pos, pos+1).upper()  # Fetch the reference base
+            ref_base = fastafile.fetch(chrom, pos, pos+1).upper()
             total_count = 0
             variant_counts = {}
+            has_indels_or_skips = False
 
             for pileupread in pileupcolumn.pileups:
-                if not pileupread.is_del and not pileupread.is_refskip:
+                if pileupread.is_del or pileupread.is_refskip:
+                    has_indels_or_skips = True
+                    break 
+                if pileupread.indel > 1:
+                    has_indels_or_skips = True
+                    break
+
+            if has_indels_or_skips:
+                continue
+
+            for pileupread in pileupcolumn.pileups:
+                # try:
+                if pileupread.alignment.query_qualities[pileupread.query_position] > 20:
                     base = pileupread.alignment.query_sequence[pileupread.query_position].upper()
                     if base != ref_base:  # Check if the base is different from the reference
                         variant_counts[base] = variant_counts.get(base, 0) + 1
                     total_count += 1
+                # except:
+                #     print("ERROR", bam, pileupread)
+                #     sys.exit()
+                #     pass
 
             # Calculate AF for each detected variant within the CNV/SV
             for base, count in variant_counts.items():
@@ -53,7 +70,7 @@ def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -
                             "compatible": is_compatible
                         }
 
-                        if af >= 0.1:
+                        if af >= 0.2:
                             if is_compatible:
                                 total_compatible_vars+=1
 
@@ -77,7 +94,7 @@ def is_vaf_compatible_with_cnv(vaf, cnv_type, copy_number=2):
     Check if a Variant Allele Frequency (VAF) is compatible with a given Copy Number Variation (CNV),
     taking into account specific expectations for deletions and duplications.
     """
-    tolerance = 0.1  # Adjust tolerance as necessary
+    tolerance = 0.125  # Adjust tolerance as necessary
 
     if cnv_type == 'DEL':
         # For a deletion, expect the VAF to be at least 0.8
@@ -188,7 +205,7 @@ def annotate_ontarget_overlaps(bed, roi_bed):
     os.rename(output_bed, bed)
     
 
-def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
+def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc, min_map, min_size):
     """
     Convert a BED file to a VCF file, using reference contigs extracted from the given BAM file to populate the VCF header.
 
@@ -276,7 +293,9 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
             bed_roi_records.append((chrom, int(start), int(end)))
     f.close()
 
-    # vcf_header.append(info_fields)
+    tmp_input_bed = bed.replace(".bed", ".tmp.bed")
+    newo = open(tmp_input_bed, "w")
+
     # Write the header to the VCF file
     bed_records = natsorted(bed_records)
     vcf_header.append('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE')
@@ -309,7 +328,7 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
                 # annotate overlapping SNV
                 snv_list, baf, baf_compat_snv = annotate_snv_baf(bam, ref_fasta, chrom, int(pos), int(end), svtype, cn)
 
-                if len(snv_list) > 0 and baf_compat_snv < 0.8:
+                if cn == 1 and len(snv_list) > 0 and baf_compat_snv < 0.8:
                     filter_tag = "Incompatible_BAF"
 
             str_snv_list = []
@@ -336,8 +355,9 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
                         info_fields[idx] = "KDIV=."
                     if field.startswith("MBQ="):
                         info_fields[idx] = "MBQ=."
-            
             svlen = int(end)-int(pos)
+            if svlen < min_size:
+                continue
             
             # Construct the INFO field for VCF
             info_fields.insert(2, f"BAF_COMPAT_SNV={str(baf_compat_snv)}")
@@ -353,25 +373,52 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample):
             call_dict = {
                 "coordinates": f"{chrom}:{pos}-{end}",          
             }
+            filter_by_gc = False
+            filter_by_size = False
+            filter_by_map = False
+
             for idx,field in enumerate(info_fields):
                 tmp_field = field.split("=")
                 field_name = tmp_field[0]
+                
                 if "PRECISE" in field:
                     call_dict["precision"] = field
                 else:
                     if len(tmp_field) > 1:
                         field_value = tmp_field[1]
                         call_dict[field_name] = field_value.replace(";", "_")
+                if field_name=="GC":
+                    field_value = tmp_field[1]
+                    if field_value != ".":
+                        if float(field_value) < min_gc:
+                            filter_by_gc = True
+                        if float(field_value) > max_gc:
+                            filter_by_gc = True
                 info_fields[idx] = field.replace(";", "_")
+
+            if filter_by_gc:
+                continue
+            if filter_by_map:
+                continue
 
             call_dict["GENOTYPE"] = genotype
             sample.analysis_json["calls"].append(call_dict)
 
             info = ';'.join(info_fields)
+
+            if filter_tag == ".":
+                newo.write(f"{chrom}\t{pos}\t{end}\t{info}\n")
+
+
             # Create the VCF entry
             alt = f'<{svtype}>'
             vcf_entry = f'{chrom}\t{pos}\t.\tN\t{alt}\t.\t{filter_tag}\t{info}\tGT\t{genotype}\n'
             vcf_file.write(vcf_entry)
     vcf_file.close()
+    newo.close()
+
+    os.remove(bed)
+    os.replace(tmp_input_bed, bed)
+
     return sample
 
