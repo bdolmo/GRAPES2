@@ -101,6 +101,12 @@ def calculate_baseline_median_depth(analysis_dict, sample_list, baselines):
             # edit_baseline.append(b)
             edit_baseline.append(f"{b}_normalized_final")
         baseline = edit_baseline
+
+        try:
+            df[baseline]
+        except:
+            continue
+
         baseline_df = df[baseline]
 
         baselines_n_samples = len(baseline)
