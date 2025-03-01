@@ -13,7 +13,11 @@ import numpy as np
 import pybedtools
 import subprocess
 from hmmlearn import hmm
-from modules.hmm import calculate_positional_mean_variance, CustomHMM
+from scipy.special import logsumexp
+
+
+#from modules.hmm import calculate_positional_mean_variance, CustomHMM
+from modules.hmmnb import calculate_positional_mean_variance, CustomHMM
 
 
 def custom_hmm_seg(sample_list, analysis_dict):
@@ -37,9 +41,15 @@ def custom_hmm_seg(sample_list, analysis_dict):
         )
         sample.add("segment_extended_file", segment_file_extended)
 
+        segment_file_map_name = f"{sample.name}.segment.map.bed"
+        segment_file_map = str(
+            Path(sample.sample_folder) / segment_file_map_name
+        )
+        sample.add("segment_file_map", segment_file_map)
         if os.path.isfile(segment_file):
             continue
 
+        m = open(segment_file_map, "w")
         o = open(segment_file, "w")
         p = open(segment_file_extended, "w")
 
@@ -49,14 +59,41 @@ def custom_hmm_seg(sample_list, analysis_dict):
         for chr in chr_dict:
 
             model = CustomHMM(obs_dict, sample.name, chr)
+
+            dispersions = model.fit_dispersion(max_iter=10, tol=1e-3)
+            alpha = model.forward()
+            print(sample.name, chr, "dispersion_values", dispersions)
+
             states, phred_scores = model.decode()
             posteriors = model.posterior_decoding()
 
+            # Calculate MAP estimates
+            map_states, map_probabilities = model.calculate_map()
+            log_likelihoods = model.compute_log_likelihood()
+            
+            # Output results
+            jdx = 0
+            for i, (state_map, prob_map) in enumerate(zip(map_states, map_probabilities)):
+                # state_map = state_map.rstrip("\n")
+                item = chr_dict[chr][jdx]
+                posterior = str(posteriors[jdx]).rstrip("\n")
+                tmp = item["region"].split("\t")
+
+                # chr15	48704765	48704940	NM_000138_64_65;FBN1	52.0	100.0	-0.813	[-4.040678, 1.361648, -2.714965, -16.251632, -18.420681]	4	0.6206
+                # Convert log likelihoods to a probability vector:
+                logL_vector = np.array(log_likelihoods[jdx])
+                prob_vector = np.exp(logL_vector - logsumexp(logL_vector))
+                most_state = np.argmax(prob_vector)
+                most_prob = prob_vector[most_state]
+                
+                m.write(f"{item['region']}\t{str(log_likelihoods[jdx])}\t{most_state}\t{most_prob:.4f}"+"\n")
+                jdx += 1
             idx = 0
             unmerged_list = []
             for item in chr_dict[chr]:
+                print(item, states, idx)
                 state = states[idx]
-                phred = phred_scores[idx][int(state)]
+                phred = phred_scores[idx][int(state)]              
                 tmp = item["region"].split("\t")
                 data_dict = {
                     "chr": tmp[0],
@@ -70,7 +107,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
                     "phred": phred
                 }
                 unmerged_list.append(data_dict)
-                p.write(item["region"] + "\t" + str(state) + "\t" + str(phred)+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
+                p.write(item["region"] + "\t" + str(state) + "\t" + str(map_probabilities[idx])+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
                 idx += 1
             merged_list = merge_segments(unmerged_list)
             for item in merged_list:
@@ -78,71 +115,10 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 for val in item:
                     out_list.append(str(item[val]))
                 o.write("\t".join(out_list) + "\n")  
-
         o.close()
         p.close()
 
     return sample_list
-
-
-def gaussian_hmm(sample_list):
-    """
-    gaussian with fixed emission hmm segmentation
-    """
-
-    for sample in sample_list:
-        segment_file_name = ("{}.segment.bed").format(sample.name)
-        segment_file = str(Path(sample.sample_folder) / segment_file_name)
-        sample.add("segment_file", segment_file)
-        o = open(segment_file, "w")
-
-        segment_file_extended_name = f"{sample.name}.extended.segment.bed"
-        segment_file_extended = str(
-            Path(sample.sample_folder) / segment_file_extended_name
-        )
-        sample.add("segment_extended_file", segment_file_extended)
-        p = open(segment_file_extended, "w")
-
-        chr_obs_dict = load_observations_by_chr(sample.ratio_file)
-
-        for chr in chr_obs_dict:
-            log2_ratio_list = []
-            for item in chr_obs_dict[chr]:
-                log2_ratio_list.append(float(item["log2_ratio"]))
-            arr = np.array(log2_ratio_list)
-            arr = arr.reshape(-1, 1)
-            prob, phred_scores = model.decode(arr)
-            prob = prob[1].tolist()
-            idx = 0
-            unmerged_list = []
-
-            for item in chr_obs_dict[chr]:
-                state = prob[idx]
-                tmp = item["region"].split("\t")
-                data_dict = {
-                    "chr": tmp[0],
-                    "start": tmp[1],
-                    "end": tmp[2],
-                    "region": tmp[3],
-                    "gc": tmp[4],
-                    "map": tmp[5],
-                    "log2_ratio": tmp[6],
-                    "state": str(state),
-                }
-                data = item["region"] + "\t" + str(state)
-                unmerged_list.append(data_dict)
-                p.write(item["region"] + "\t" + str(state) + "\n")
-                idx += 1
-            merged_list = merge_segments(unmerged_list)
-            for item in merged_list:
-                out_list = []
-                for val in item:
-                    out_list.append(str(item[val]))
-                o.write("\t".join(out_list) + "\n")
-            sys.exit()
-        o.close()
-    return sample_list
-
 
 def merge_segments(unmerged_list):
     """ """

@@ -22,128 +22,75 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.utils.extmath import randomized_svd
 from statsmodels.nonparametric.smoothers_lowess import lowess
 from .baseline_db import calculate_bed_md5, import_baselines_to_df
+import statsmodels.api as sm
+from modules.loopca import simulate_artificial_cnvs, loo_pca, find_optimal_pc_removal
 
 
-def normalize_read_depth(bed_file, window_size=100):
-    # Read the BED file into a pandas DataFrame
+
+def normalize_read_depth(bed_file, gc_col='gc', num_gc_bins=50, scale_factor=1e6, meta_columns=None):
+    """
+    Normalize read depth by library size and correct for GC bias.
+    The BED file is split into autosomal and sex chromosomes. Sample columns are auto-detected
+    by excluding meta columns.
+
+    Parameters:
+      bed_file      : Path to the input BED file.
+      gc_col        : Column name for GC content (should be numeric).
+      num_gc_bins   : Number of bins to use when grouping by GC content.
+      scale_factor  : Scaling factor for library size normalization (e.g., 1e6 for counts-per-million).
+      meta_columns  : List of columns that are metadata (e.g. ['chr', 'start', 'end', 'name', 'gc']).
+                      If None, a default list is used.
+
+    Returns:
+      autosomal_df: DataFrame with normalized data for autosomal chromosomes (chr1–chr22).
+      sex_df      : DataFrame with normalized data for sex chromosomes (chrX, chrY).
+    """
+    # Define default meta columns if none are provided.
+    if meta_columns is None:
+        meta_columns = ['chr', 'start', 'end', 'name', gc_col]
+    
+    # Load the BED file into a DataFrame.
     df = pd.read_csv(bed_file, sep='\t')
+    
+    # Ensure the 'chr' column is a string and in lowercase (to standardize comparisons).
+    df['chr'] = df['chr'].astype(str).str.lower()
+    
+    # Automatically determine sample columns: those not in meta_columns.
+    sample_columns = df[6:]
+    
+    # Split the DataFrame into autosomal and sex chromosomes.
+    autosomal_chr = ['chr' + str(i) for i in range(1, 23)]
+    sex_chr = ['chrx', 'chry']
+    autosomal_df = df[df['chr'].isin(autosomal_chr)].copy()
+    sex_df = df[df['chr'].isin(sex_chr)].copy()
 
-    # Split DataFrame based on 'chr' column
-    autosomal_df = df[df['chr'].str.lower().isin(['chr'+str(i) for i in range(1, 23)])]
-    sex_df = df[df['chr'].str.lower().isin(['chrx', 'chry'])]
+    def normalize_df(df_sub):
+        # ---- Step 1: Library Size Normalization ----
+        # Compute the total reads per sample in this subset.
+        library_sizes = {sample: df_sub[sample].sum() for sample in sample_columns}
+        # Scale each sample to counts per the given scale_factor.
+        for sample in sample_columns:
+            df_sub[sample] = (df_sub[sample] / library_sizes[sample]) * scale_factor
 
-    # Define the samples columns
-    samples = df.columns[6:]  # Assumes sample columns are from index 6 onwards
+        # ---- Step 2: GC Bias Correction ----
+        # Create bins for GC content.
+        # df_sub['gc_bin'] = pd.cut(df_sub[gc_col], bins=num_gc_bins)
+        # # For each sample, compute the median normalized depth per GC bin and map it back.
+        # for sample in sample_columns:
+        #     expected_depth = df_sub.groupby('gc_bin')[sample].median()
+        #     expected = df_sub['gc_bin'].map(expected_depth)
+        #     # To avoid division by zero, clip the expected values.
+        #     epsilon = 1e-6
+        #     expected = expected.clip(lower=epsilon)
+        #     df_sub[sample] = df_sub[sample] / expected
+        # # Remove the temporary gc_bin column.
+        # df_sub.drop(columns='gc_bin', inplace=True)
+        return df_sub
 
-    # Define a normalization function
-    def normalize_df(df):
-        # Normalize for total sequencing depth
-        df[samples] = df[samples].div(df[samples].sum(axis=1), axis=0)
-
-        # Normalize for GC content using rolling median
-        for sample in samples:
-            # Create a DataFrame with 'gc' and the current sample
-            gc_df = pd.DataFrame({'gc': df['gc'], 'depth': df[sample]})
-            # Sort by 'gc' and then apply rolling median to 'depth'
-            gc_df = gc_df.sort_values('gc')
-            gc_df['depth'] = gc_df['depth'].rolling(window_size, min_periods=30).median()
-            # Assign the normalized depths back to the original DataFrame in their original order
-            df[sample] = gc_df.sort_values('gc', ascending=False)['depth'].values
-        return df
-
-    # Apply the normalization function to both DataFrames
     autosomal_df = normalize_df(autosomal_df)
     sex_df = normalize_df(sex_df)
 
-    normalized_bed = bed_file.replace(".bed", ".test.norm.bed")
-    normalized_df = pd.concat([autosomal_df, sex_df])
-    normalized_df.to_csv(normalized_bed, sep='\t', index=False)
-    return normalized_bed
-
-
-def loess_normalization(df, sample_name, field):
-
-    # Adding a small constant to avoid log(0)
-    y = df[field] + 1e-10
-
-    # Log-transform y
-    y_log = np.log(y)
-
-    # Perform LOESS smoothing on log-transformed y
-    lowess_smoothed = lowess(y_log, df['gc'], frac=0.05)
-
-    # Interpolate the LOESS-smoothed values at the points in x
-    y_smoothed_interpolated = np.interp(df['gc'], lowess_smoothed[:, 0], lowess_smoothed[:, 1])
-    df[f"{sample_name}_normalized_final"] = y_log - y_smoothed_interpolated
-
-    # lowess_smoothed = lowess(df[field], df['gc'], frac=0.3)
-    # df[f"{sample_name}_normalized_final"] = df[f"{sample_name}_normalized_final"] - lowess_smoothed[:, 1]
-    shift = abs(df[f"{sample_name}_normalized_final"].min())
-    df[f"{sample_name}_normalized_final"] += shift
-
-    return df
-
-
-def pca_noise_reduction(df, var_cutoff=0.999999, max_components=100):
-    # Identify the range of columns to process
-
-    # Identify the range of columns to process, using your column name assumptions
-    start_index = df.columns.get_loc('map') + 1
-    end_index = df.columns.get_loc('gc_bin')-1
-    # Select columns that end with "_normalized_final" within that range
-    depth_cols = [col for col in df.columns[start_index:end_index]]
-    # print(depth_cols)
-    # sys.exit()
-    # depth_cols = [col for col in df.columns if col.endswith("_normalized_final")]
-
-    # Normalize the data using Z-score normalization
-    scaler = StandardScaler()
-    X_normalized = scaler.fit_transform(df[depth_cols])
-
-    # Perform PCA
-    pca = PCA(n_components=min(max_components, len(depth_cols)))
-    X_pca = pca.fit_transform(X_normalized)
-
-    # Determine how many components to remove based on variance cutoff
-    variance_explained = np.cumsum(pca.explained_variance_ratio_)
-    print(variance_explained)
-
-    components_to_keep = np.where(variance_explained > var_cutoff)[0][0] + 1
-    print(components_to_keep)
-    # components_to_keep = 50
-    # if components_to_keep > 1:
-        # Exclude the first component and keep up to the remaining 'components_to_keep' components
-    X_reduced = X_pca[:, 4:]
-    # else:
-    #     # In case all significant variance is explained by the first component which you want to remove
-    #     X_reduced = np.zeros_like(X_pca[:, :1])  # Retain shape but set to zero if only the first component was significant
-
-
-    # X_reduced = X_pca
-    print(X_reduced)
-
-    # Reconstruct the data from the reduced number of components
-    X_reconstructed = pca.inverse_transform(np.hstack([X_reduced, np.zeros((X_reduced.shape[0], 1))]))
-    #X_reconstructed = pca.inverse_transform(X_reduced)
-    # Convert the reconstructed data back to the original DataFrame format
-    df_reconstructed = pd.DataFrame(X_reconstructed, columns=depth_cols, index=df.index)
-
-
-    # Shift the reconstructed data to ensure all values are non-negative
-    min_val = df_reconstructed.min().min()  # Find the smallest value in the DataFrame
-    if min_val < 0:
-        df_reconstructed -= min_val  # Shift values to make the smallest zero
-
-    # Replace original columns with reconstructed data
-
-    # Add the residuals back to the dataframe
-    residual_cols = [col + '_normalized_svd' for col in depth_cols]
-
-    for col in depth_cols:
-        newcol = col + "_normalized_final"
-        df[newcol] = df_reconstructed[col]
-
-    return df
+    return autosomal_df, sex_df
 
 
 def launch_normalization(sample_list, analysis_dict, ann_dict):
@@ -315,6 +262,101 @@ def norm_by_lib(row, sample_median, chrX_median, sample_name, total_reads):
 
     return norm_lib
 
+
+def loess_normalization(df, sample_name, cov_target, frac=0.3):
+    """
+    Normalize exon-level coverage for a given sample by fitting a LOWESS model
+    to the relationship between GC content and library-normalized coverage.
+    
+    Parameters:
+      df: DataFrame with at least columns 'gc' and the library-normalized coverage.
+      sample_name: The sample name.
+      cov_target: The column name (e.g. "{sample}_normalized_library") holding the library-normalized coverage.
+      frac: The fraction of data used when estimating each y-value in LOWESS.
+    
+    Returns:
+      A pandas Series of the GC-normalized coverage.
+    """
+    # Get GC content (assumed to be percent values; if fraction, you may need to adjust)
+    gc_values = df['gc'].values
+    coverage = df[cov_target].values
+    # Fit LOWESS model
+    lowess_fit = sm.nonparametric.lowess(coverage, gc_values, frac=frac, return_sorted=False)
+    # Avoid division by zero
+    lowess_fit[lowess_fit == 0] = 1e-8
+    # Calculate a global median to keep overall scale
+    global_median = np.median(coverage)
+    normalized = (df[cov_target] / lowess_fit) * global_median
+    return normalized
+
+# def normalize_exon_level(input_bed, sample_list, fields):
+#     """
+#     Normalize exon-level coverage for each sample.
+#     Steps:
+#       1. Read the BED file and compute exon length.
+#       2. (Optional) Compute row-wise median if needed.
+#       3. Create GC bins (here we still use pd.cut, but then we apply LOESS on the full data).
+#       4. For each sample:
+#            - Compute library-normalized coverage using norm_by_lib (assumed to be defined).
+#            - Use loess_normalization to adjust the library-normalized coverage by GC content.
+#            - For each additional field (e.g. GC, map), you may further adjust normalization using
+#              grouping by GC bin (if desired).
+#       5. Return the DataFrame with a new column, e.g. "{sample}_normalized_final".
+#     """
+#     df = pd.read_csv(input_bed, sep="\t")
+    
+#     df['length'] = df['end'] - df['start']
+#     # Optionally, filter very short exons
+#     # df = df[df['length'] > 10]
+    
+#     sample_names = [sample.name for sample in sample_list]
+    
+#     # Calculate row-wise median coverage (if needed)
+#     df['median_coverage'] = df[sample_names].median(axis=1)
+#     # Optionally filter rows with low coverage, then drop the column
+#     # df = df[df['median_coverage'] >= 30]
+#     df = df.drop(columns=['median_coverage'])
+    
+#     fields_str = ",".join(fields)
+#     msg = f" INFO: Normalizing exon level coverage by {fields_str}"
+#     logging.info(msg)
+    
+#     # Create GC bins (if needed for additional normalization)
+#     bins = np.arange(0, 110, 10)  # assuming GC content in percent
+#     df['gc_bin'] = pd.cut(df['gc'], bins)
+    
+#     # For each sample, perform library normalization and then GC normalization
+#     for sample in sample_list:
+#         sample_lib_tag = f"{sample.name}_normalized_library"
+#         # Compute the sample median from the raw coverage column
+#         sample_median = df[sample.name].median()
+#         median_cov_chrX = round(df[df["chr"] != "chrX"][sample.name].median(), 6)
+    
+#         # norm_by_lib should adjust for library size, etc. (assumed defined elsewhere)
+#         df[sample_lib_tag] = df.apply(
+#             norm_by_lib,
+#             sample_median=sample_median,
+#             chrX_median=median_cov_chrX,
+#             sample_name=sample.name,
+#             total_reads=sample.ontarget_reads,
+#             axis=1,
+#         )
+    
+#         # Now apply LOESS normalization for GC content.
+#         normalized_final = f"{sample.name}_normalized_final"
+#         df[normalized_final] = loess_normalization(df, sample.name, sample_lib_tag, frac=0.3)
+    
+#         # If additional normalization by other fields is needed, you could loop over fields here.
+#         # For example, if you want to further adjust for GC or mapping score using group medians,
+#         # you can perform that calculation here.
+    
+#     # (Optionally apply PCA/SVD noise reduction, etc.)
+#     # df_svd = pca_noise_reduction(df)
+#     # df = df_svd
+#     # normalized_svd_bed = input_bed.replace("read.counts.bed", "normalized.svd.bed")
+#     # df.to_csv(normalized_svd_bed, sep='\t', index=False)
+    
+#     return df
 
 def normalize_exon_level(input_bed, sample_list, fields):
     """ """

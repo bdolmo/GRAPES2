@@ -37,7 +37,6 @@ def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -
                 continue
 
             for pileupread in pileupcolumn.pileups:
-                # try:
                 if pileupread.alignment.query_qualities[pileupread.query_position] > 20:
                     base = pileupread.alignment.query_sequence[pileupread.query_position].upper()
                     if base != ref_base:  # Check if the base is different from the reference
@@ -256,6 +255,7 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
         '##INFO=<ID=ASSEMBLED,Number=1,Type=Integer,Description="Number of reads assembled at breakpoints">',
         '##INFO=<ID=PE,Number=1,Type=Integer,Description="Number of paired-end reads supporting the SV">',
         '##INFO=<ID=ZSCORE,Number=1,Type=Float,Description="Z-score of the CNV call">',
+        '##INFO=<ID=CV,Number=1,Type=Float,Description="Coefficient of variation of the CNV call">',
         '##INFO=<ID=CNV_SCORE,Number=1,Type=Float,Description="Phred score of the CNV call">',
         '##INFO=<ID=MBQ,Number=1,Type=Integer,Description="Mean Base Quality in phred scale">',
         '##INFO=<ID=MBAF,Number=1,Type=Float,Description="Mean B-Allele Frequency for overlapping SNV">',
@@ -310,6 +310,7 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
             filter_tag = "."
 
             info_fields = fields[3].split(';')
+
             svtype = [f for f in info_fields if "SVTYPE=" in f][0].split('=')[1]
             genotype = "./."
             baf_compat_snv = "."
@@ -326,6 +327,8 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
             baf = "."
             if cn:
                 # annotate overlapping SNV
+                # print(bam, ref_fasta, chrom, int(pos), int(end), svtype, cn)
+
                 snv_list, baf, baf_compat_snv = annotate_snv_baf(bam, ref_fasta, chrom, int(pos), int(end), svtype, cn)
 
                 if cn == 1 and len(snv_list) > 0 and baf_compat_snv < 0.8:

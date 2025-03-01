@@ -10,7 +10,7 @@ from modules.normalize import launch_normalization
 from modules.plot import plot_normalization, CnvPlot, plot_gene
 from modules.cluster import launch_sample_clustering
 from modules.ratio import calculate_coverage_ratios
-from modules.segment import cbs, gaussian_hmm, custom_hmm_seg
+from modules.segment import cbs, custom_hmm_seg
 from modules.breakpoint import call_structural_variants
 from modules.merge_cnv_sv import merge_bed_files
 from modules.offtarget import (create_offtarget_bed, 
@@ -88,16 +88,20 @@ def main(args):
     # calculate ratios
     sample_list, analysis_dict = calculate_coverage_ratios(sample_list, analysis_dict)
 
+    # Segmentation
     sample_list = custom_hmm_seg(sample_list, analysis_dict)
 
+    # Raw cnv calling
     sample_list = call_raw_cnvs(
         sample_list, analysis_dict, args.upper_del_cutoff, args.lower_dup_cutoff
     )
     
+    # Filter single-exon CNVs using statistics
     filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
         args.lower_dup_cutoff, analysis_dict
     )
 
+    
     sample_list = unify_raw_calls(sample_list)
 
     sample_list = call_cnvs(sample_list, args.upper_del_cutoff, 
@@ -238,14 +242,14 @@ def parse_arguments():
     parser.add_argument(
         "--upper_del_cutoff",
         type=float,
-        default=-0.621,
+        default=-0.6,
         help=".",
         dest="upper_del_cutoff",
     )
     parser.add_argument(
         "--lower_dup_cutoff",
         type=float,
-        default=0.433,
+        default=0.4,
         help=".",
         dest="lower_dup_cutoff",
     )
@@ -268,7 +272,7 @@ def parse_arguments():
         "--min_gc",
         type=int,
         default=20,
-        help="Minimum SV/CNV size to be reported",
+        help="Minimum GC content",
         dest="min_gc"
     )
 
@@ -276,14 +280,14 @@ def parse_arguments():
         "--max_gc",
         type=int,
         default=80,
-        help="Maximum",
+        help="Maximum GC content",
         dest="max_gc"
     )
     parser.add_argument(
         "--min_mappability",
         type=int,
         default=30,
-        help="Minimum SV/CNV size to be reported",
+        help="Minimum mappability",
         dest="min_mappability"
     )
 

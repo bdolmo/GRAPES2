@@ -89,7 +89,6 @@ def convert_params(mu, alpha):
     r = mu ** 2 / (var - mu)
     return r, p
 
-
 class CustomHMM:
     """ """
 
@@ -111,7 +110,7 @@ class CustomHMM:
             [
                 [0.5, 0, 0.5, 0, 0],
                 [0, 0.5, 0.5, 0, 0],
-                [0.0125, 0.0125, 0.95, 0.0125, 0.0125],
+                [0.005, 0.045, 0.90, 0.045, 0.005],
                 [0, 0, 0.5, 0.5, 0],
                 [0, 0, 0.5, 0, 0.5],
             ]
@@ -205,10 +204,8 @@ class CustomHMM:
 
                 state_list.append(logp_dict[idx][state])
                 depth_list.append(str(state) + ":" + str(x))
-
             emissions.append(state_list)
             idx += 1
-        
 
         return emissions
 
@@ -258,11 +255,30 @@ class CustomHMM:
 
         # Compute posterior probabilities in log space
         log_posterior_probs = alpha + beta - logsumexp(alpha + beta, axis=1, keepdims=True)
+        log_posterior_probs = alpha + beta- logsumexp(alpha + beta, axis=1, keepdims=True)
 
         # Convert back to normal space if necessary
         posterior_probs = np.exp(log_posterior_probs)
-
         return posterior_probs
+
+
+    def calculate_map(self):
+        """
+        Calculate the Maximum A Posteriori (MAP) estimate for each region.
+
+        Returns
+        -------
+        map_states : list
+            A list of states representing the most probable state for each region.
+        map_probabilities : list
+            A list of the maximum posterior probabilities for each region.
+        """
+        posterior_probs = self.posterior_decoding()
+        map_states = np.argmax(posterior_probs, axis=1)  # Most probable state for each region
+        map_probabilities = np.max(posterior_probs, axis=1)  # Maximum posterior probability for each region
+
+        return map_states, map_probabilities
+
 
     def decode(self):
         """
@@ -280,7 +296,8 @@ class CustomHMM:
             [
                 [0.5, 0, 0.5, 0, 0],
                 [0, 0.5, 0.5, 0, 0],
-                [0.005, 0.02, 0.95, 0.02, 0.005],
+                [0.005, 0.045, 0.90, 0.045, 0.005],
+                # [0.005, 0.02, 0.95, 0.02, 0.005],
                 [0, 0, 0.5, 0.5, 0],
                 [0, 0, 0.5, 0, 0.5],
             ]
@@ -298,11 +315,8 @@ class CustomHMM:
         phred_scores = np.zeros((T, M))
         prob_scores = np.zeros((T, M))
         for t in range(1, T):
-
             list_phreds = []
-
             list_probabilites = []
-
             for j in range(M):
                 probability = omega[t - 1] + np.log(A[:, j] + epsilon) + B[t, j]
                 max_log_prob = np.max(probability)

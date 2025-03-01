@@ -184,8 +184,8 @@ def plot_gene(sample, sample_list, gene, analysis_dict):
         unique_exons = combined_df['exons'].unique()
 
         # Scatter plot for red and black points
-        red_points = combined_df[combined_df[sample_tag] < -0.621]
-        black_points = combined_df[(combined_df[sample_tag] >= -0.621) & (combined_df[sample_tag] <= 0.433)]
+        red_points = combined_df[combined_df[sample_tag] < analysis_dict["upper_del_cutoff"]]
+        black_points = combined_df[(combined_df[sample_tag] >= analysis_dict["upper_del_cutoff"]) & (combined_df[sample_tag] <= analysis_dict["lower_dup_cutoff"])]
 
         # Plot each point separately to align with the corresponding box
         for exon in unique_exons:
