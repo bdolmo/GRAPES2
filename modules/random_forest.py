@@ -1,9 +1,15 @@
 import re
 import pickle
 import pandas as pd
+from pathlib import Path
+
+main_dir = Path(__file__).resolve().parents[1]
+ml_models_dir = os.path.join(main_dir, "ml_models")
 
 def extract_info_field(info):
-    """Parses the INFO field and extracts relevant features."""
+    """
+        Parses the INFO field and extracts relevant features.
+    """
     info_dict = {}
     for entry in info.split(";"):
         if "=" in entry:
@@ -23,9 +29,11 @@ def extract_info_field(info):
     return info_dict
 
 def load_model(pickle_file="trained_rf.pkl"):
-    """Loads the pre-trained RandomForest model from a pickle file."""
+    """
+        Loads the pre-trained RandomForest model from a pickle file.
+    """
 
-    pickle_file = "/home/udmmp/Desktop/GRAPES2/ml_models/trained_rf.pkl"
+    pickle_file = os.path.join(ml_models_dir, "trained_rf.pkl")
 
     with open(pickle_file, "rb") as f:
         model = pickle.load(f)
