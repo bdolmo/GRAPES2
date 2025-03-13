@@ -2,6 +2,7 @@ import re
 import pickle
 import pandas as pd
 from pathlib import Path
+import os
 
 main_dir = Path(__file__).resolve().parents[1]
 ml_models_dir = os.path.join(main_dir, "ml_models")
