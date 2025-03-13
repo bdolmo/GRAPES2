@@ -311,6 +311,9 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
             filter_tag = "."
 
             info_fields = fields[3].split(';')
+            if len(info_fields) < 1:
+                continue
+
 
             svtype = [f for f in info_fields if "SVTYPE=" in f][0].split('=')[1]
             genotype = "./."
