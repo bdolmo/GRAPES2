@@ -5,6 +5,7 @@ import pybedtools
 from pybedtools import BedTool
 import os
 import pysam
+from modules.random_forest import load_model, process_vcf
 
 
 def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -> float:
@@ -422,6 +423,11 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
 
     os.remove(bed)
     os.replace(tmp_input_bed, bed)
+
+    model = load_model()
+
+    vcf_rf = output_vcf.replace(".vcf", ".rf.vcf")
+    process_vcf(output_vcf, sample.mean_correlation, sample.enrichment, vcf_rf, model)
 
     return sample
 

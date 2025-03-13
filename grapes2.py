@@ -25,6 +25,9 @@ from modules.call import (
 )
 from modules.vcf import bed_to_vcf
 from modules.utils import remove_tmp_files
+
+from modules.random_forest import load_model, process_vcf
+
 import json
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +53,11 @@ def main(args):
 
     # logging formatting
     setup_logging(args.output_dir)
+    # model = load_model()
+    # print(model)
+
+    # process_vcf("test.vcf", 0.97, "test.out.vcf", model)
+    # sys.exit()
 
     # I/O Initialization
     sample_list, analysis_dict, ngs_utils_dict, ann_dict = initialize(args)
@@ -84,6 +92,9 @@ def main(args):
     # sample_list = plot_normalization(sample_list, analysis_dict)
 
     sample_list, analysis_dict = launch_sample_clustering(sample_list, analysis_dict)
+    # for sample in sample_list:
+    #     print(sample.mean_correlation, sample.enrichment)
+    #     sys.exit()
 
     # calculate ratios
     sample_list, analysis_dict = calculate_coverage_ratios(sample_list, analysis_dict)

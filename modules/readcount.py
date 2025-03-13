@@ -47,6 +47,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
         analysis_dict["ready_bed"],
         analysis_dict["threads"],
     )
+    cmd_str = " ".join(cmd)
 
     if not os.path.isfile(unified_raw_depth) and not os.path.isfile(
         per_base_coverage_file
@@ -98,7 +99,8 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
                         gender = "Female"
                     elif ratio > 0 and ratio < threshold-0.2:
                         gender = "Male"
-                        
+
+                    sample.add("enrichment", float(tmp[4]))
                     sample.add("ontarget_reads", int(tmp[2]))
                     sample.add("mean_coverage", float(tmp[5]))
                     sample.add("mean_coverage_X", float(tmp[-1]))
