@@ -151,7 +151,6 @@ def main(args):
         sample = bed_to_vcf(merged_bed, analysis_dict["bed"], sample.bam, args.reference, 
             final_vcf, sample, args.min_gc, args.max_gc, args.min_mappability, args.min_size)
 
-
         json_data = json.dumps(sample.analysis_json, indent=2)
 
         output_json = os.path.join(args.output_dir, sample.name, 
