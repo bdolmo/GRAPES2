@@ -314,11 +314,11 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
             if len(info_fields) < 1:
                 continue
 
-
-            print(bed, line, info_fields)
-
-
-            svtype = [f for f in info_fields if "SVTYPE=" in f][0].split('=')[1]
+            # print(bed, line, info_fields)
+            try:
+                svtype = [f for f in info_fields if "SVTYPE=" in f][0].split('=')[1]
+            except:
+                continue
             genotype = "./."
             baf_compat_snv = "."
             cn = ""
@@ -335,7 +335,6 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
             if cn:
                 # annotate overlapping SNV
                 # print(bam, ref_fasta, chrom, int(pos), int(end), svtype, cn)
-
                 snv_list, baf, baf_compat_snv = annotate_snv_baf(bam, ref_fasta, chrom, int(pos), int(end), svtype, cn)
 
                 if cn == 1 and len(snv_list) > 0 and baf_compat_snv < 0.8:
