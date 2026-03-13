@@ -1,42 +1,43 @@
-# Start from a Python 10 base image
-FROM python:3.11-slim
+# Start from a pinned Python 3.11 Debian Bookworm image
+FROM python:3.11-slim-bookworm
 
 # Set the working directory in the container
 WORKDIR /usr/src/app
 
-# Install git and build dependencies
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y git \
-    build-essential \
-    libatlas-base-dev \
-    libblas-dev \
-    liblapack-dev \
-    gfortran \
-    wget \
-    zlib1g-dev \
-    bedtools \
-    samtools
-        
+    apt-get install -y --no-install-recommends \
+        git \
+        build-essential \
+        libatlas-base-dev \
+        libblas-dev \
+        liblapack-dev \
+        gfortran \
+        wget \
+        zlib1g-dev \
+        bedtools \
+        samtools && \
+    rm -rf /var/lib/apt/lists/*
+
 # Clone the repository
-RUN git clone https://github.com/bdolmo/GRAPES2.git
+RUN git clone --depth 1 https://github.com/bdolmo/GRAPES2.git
 
 # Change the working directory to GRAPES2
 WORKDIR /usr/src/app/GRAPES2
 
-RUN pip3 install --upgrade pip
+# Upgrade pip and install Python dependencies
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --no-cache-dir -r requirements.txt
 
-# Install any dependencies
-RUN pip3 install --no-cache -r requirements.txt
+# Create the mappability directory and download files
+RUN mkdir -p annotations/mappability && \
+    wget -O annotations/mappability/GRCh38.mappability.100mer.bedGraph.gz \
+        "https://www.dropbox.com/s/3hnvpczq9sbown6/GRCh38.mappability.100mer.bedGraph.gz?dl=1" && \
+    wget -O annotations/mappability/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz \
+        "https://www.dropbox.com/s/hjf0a9ga8je6ndz/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=1"
 
-# Create the mappability directory
-RUN mkdir -p annotations/mappability
-
-# Download the large mappability files into the annotations/mappability directory
-RUN wget https://www.dropbox.com/s/3hnvpczq9sbown6/GRCh38.mappability.100mer.bedGraph.gz?dl=0 -O annotations/mappability/GRCh38.mappability.100mer.bedGraph.gz && \
-    wget https://www.dropbox.com/s/hjf0a9ga8je6ndz/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=0 -O annotations/mappability/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz
-
-# Add GRAPES to PATH
+# Add GRAPES2 to PATH
 ENV PATH="/usr/src/app/GRAPES2:${PATH}"
 
-# by default GRAPES is executed
-CMD ["GRAPES2"]
+# Default command
+CMD ["python", "grapes2.py"]

@@ -20,7 +20,7 @@ def extract_info_field(info):
             info_dict[entry] = True  # Flags with no value
     
     # Convert numerical fields to float or int
-    for key in ["GC", "MAP", "ZSCORE", "CV", "NREGIONS", "LOG2RATIO", "CNV_SCORE"]:
+    for key in ["END", "GC", "MAP", "ZSCORE", "CV", "NREGIONS", "LOG2RATIO", "CNV_SCORE"]:
         if key in info_dict:
             try:
                 info_dict[key] = float(info_dict[key])
@@ -53,7 +53,8 @@ def process_vcf(input_vcf, sample_correlation, sample_enrichment, output_vcf, mo
     ]
 
     updated_lines = []
-    
+    skipped_records = 0
+
     with open(input_vcf, "r") as infile:
         for line in infile:
             if line.startswith("#"):
@@ -61,24 +62,47 @@ def process_vcf(input_vcf, sample_correlation, sample_enrichment, output_vcf, mo
                 continue
 
             fields = line.strip().split("\t")
-            chrom, start, end, info = fields[0], fields[1], fields[2], fields[7]          
+            if len(fields) < 8:
+                updated_lines.append(line.strip())
+                continue
+
+            start, info = fields[1], fields[7]
 
             # Extract features from INFO field
             info_dict = extract_info_field(info)
 
-            end = info_dict["END"]
+            end = info_dict.get("END")
+            try:
+                start_int = int(start)
+            except (TypeError, ValueError):
+                updated_lines.append(line.strip())
+                skipped_records += 1
+                continue
+
+            if end is None:
+                end_int = start_int
+            else:
+                try:
+                    end_int = int(end)
+                except (TypeError, ValueError):
+                    end_int = start_int
 
             info_dict_translated = {
-                "svlen": int(end)-int(start),
-                "gc": info_dict["GC"],
-                "map": info_dict["MAP"],
-                "log2ratio": info_dict["LOG2RATIO"],
-                "cv": info_dict["CV"],
+                "svlen": end_int - start_int,
+                "gc": info_dict.get("GC"),
+                "map": info_dict.get("MAP"),
+                "log2ratio": info_dict.get("LOG2RATIO"),
+                "cv": info_dict.get("CV"),
                 "%ROI": sample_enrichment,
-                "nregions": info_dict["NREGIONS"],
+                "nregions": info_dict.get("NREGIONS"),
                 "mean_top10_corr": sample_correlation,
-                "zscore": info_dict["ZSCORE"]
+                "zscore": info_dict.get("ZSCORE")
             }
+
+            if any(info_dict_translated.get(col) is None for col in feature_cols):
+                updated_lines.append(line.strip())
+                skipped_records += 1
+                continue
 
             # Prepare input data for prediction
             feature_values = [info_dict_translated.get(col, 0) for col in feature_cols] 
@@ -88,16 +112,26 @@ def process_vcf(input_vcf, sample_correlation, sample_enrichment, output_vcf, mo
             # Apply model prediction
             prob_score = model.predict_proba(feature_df)[0, 1]  
 
-            # Append prediction to INFO field
-            new_info = f"{info};RF_SCORE={prob_score:.4f}"
+            # Append prediction to INFO field (replace if already present)
+            clean_tokens = [tok for tok in info.split(";") if not tok.startswith("RF_SCORE=")]
+            new_info = ";".join(clean_tokens + [f"RF_SCORE={prob_score:.4f}"])
             fields[7] = new_info  # Update INFO field
+            if prob_score >= 0.5:
+                fields[6] = "PASS"
             updated_lines.append("\t".join(fields))
 
     # Save modified VCF
     with open(output_vcf, "w") as outfile:
         outfile.write("\n".join(updated_lines) + "\n")
-    
-    print(f"Updated VCF saved to: {output_vcf}")
+
+    if skipped_records > 0:
+        msg = (
+            f" INFO: RF scoring skipped for {skipped_records} VCF records "
+            "with missing required INFO fields"
+        )
+        print(msg)
+
+    return output_vcf
 
 if __name__ == "__main__":
     input_vcf = "input.vcf"

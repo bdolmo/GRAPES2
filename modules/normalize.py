@@ -23,7 +23,7 @@ from sklearn.utils.extmath import randomized_svd
 from statsmodels.nonparametric.smoothers_lowess import lowess
 from .baseline_db import calculate_bed_md5, import_baselines_to_df
 import statsmodels.api as sm
-from modules.loopca import simulate_artificial_cnvs, loo_pca, find_optimal_pc_removal
+# from modules.loopca import simulate_artificial_cnvs, loo_pca, find_optimal_pc_removal
 
 
 

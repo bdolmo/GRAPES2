@@ -43,16 +43,11 @@ def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -
                     if base != ref_base:  # Check if the base is different from the reference
                         variant_counts[base] = variant_counts.get(base, 0) + 1
                     total_count += 1
-                # except:
-                #     print("ERROR", bam, pileupread)
-                #     sys.exit()
-                #     pass
 
             # Calculate AF for each detected variant within the CNV/SV
             for base, count in variant_counts.items():
                 if total_count > 0:
                     af = round(count / total_count, 3)
-
                     if total_count > 30 and count > 10:  # Apply filtering criteria for variant calling
 
                         if cnv_type == "DUP" and af == 1:
@@ -205,7 +200,47 @@ def annotate_ontarget_overlaps(bed, roi_bed):
     os.rename(output_bed, bed)
     
 
-def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc, min_map, min_size):
+def export_vcf_calls_to_bed(vcf_file, output_bed):
+    """
+    Export VCF records to a BED-like file used by export_all_calls:
+    chr, start(POS), end(END), info
+    """
+    with open(vcf_file, "r") as invcf, open(output_bed, "w") as outbed:
+        for line in invcf:
+            if line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) < 8:
+                continue
+
+            chrom = fields[0]
+            pos = fields[1]
+            info = fields[7]
+
+            end = pos
+            for token in info.split(";"):
+                if token.startswith("END="):
+                    end = token.split("=", 1)[1]
+                    break
+
+            outbed.write(f"{chrom}\t{pos}\t{end}\t{info}\n")
+
+    return output_bed
+
+
+def bed_to_vcf(
+    bed,
+    roi_bed,
+    bam,
+    ref_fasta,
+    output_vcf,
+    sample,
+    min_gc,
+    max_gc,
+    min_map,
+    min_size,
+    apply_rf=False,
+):
     """
     Convert a BED file to a VCF file, using reference contigs extracted from the given BAM file to populate the VCF header.
 
@@ -264,8 +299,10 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
         '##INFO=<ID=BAF_COMPAT_SNV,Number=1,Type=String,Description="Ratio of BAF-compatible SNVs with an overlapping CNV">',
         '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total depth">',
         '##INFO=<ID=CALLER,Number=1,Type=String,Description="Caller name">',
+        '##INFO=<ID=SOURCE,Number=1,Type=String,Description="Source program">',
         '##INFO=<ID=ON_TARGET,Number=1,Type=Integer,Description="On-target call(1) or off-target(0)">',
         '##INFO=<ID=AF,Number=1,Type=Float,Description="Variant Allele Frequency">',
+        '##INFO=<ID=RF_SCORE,Number=1,Type=Float,Description="Random Forest probability score">',
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">'
     ]
     for field in info_fields:
@@ -429,10 +466,24 @@ def bed_to_vcf(bed, roi_bed, bam, ref_fasta, output_vcf, sample, min_gc, max_gc,
     os.remove(bed)
     os.replace(tmp_input_bed, bed)
 
-    model = load_model()
+    if apply_rf:
+        try:
+            model = load_model()
+        except Exception as e:
+            msg = f" INFO: RF post-processing skipped (model not available): {e}"
+            print(msg)
+        else:
+            tmp_rf_vcf = output_vcf.replace(".vcf", ".tmp.rf.vcf")
+            process_vcf(output_vcf, sample.mean_correlation, sample.enrichment, tmp_rf_vcf, model)
+            os.replace(tmp_rf_vcf, output_vcf)
 
-    vcf_rf = output_vcf.replace(".vcf", ".rf.vcf")
-    process_vcf(output_vcf, sample.mean_correlation, sample.enrichment, vcf_rf, model)
+            # Clean legacy RF VCF naming if present from older runs.
+            legacy_rf_vcf = output_vcf.replace(".vcf", ".rf.vcf")
+            if legacy_rf_vcf != output_vcf and os.path.isfile(legacy_rf_vcf):
+                os.remove(legacy_rf_vcf)
+
+            rf_calls_bed = bed.replace(".bed", ".rf.bed")
+            export_vcf_calls_to_bed(output_vcf, rf_calls_bed)
+            sample.add("calls_bed", rf_calls_bed)
 
     return sample
-

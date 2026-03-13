@@ -160,13 +160,15 @@ def create_pseudowindows(output_dir, binsize, chromosomes_file):
     try:
         INPW = open(inputpw, 'r')
     except IOError:
-        print(f"Cannot open {inputpw}")
+        msg = f" INFO: Cannot open {inputpw}"
+        print(msg)
         return
 
     try:
         OUTPW = open(outputpw, 'w')
     except IOError:
-        print(f"Cannot open {outputpw}")
+        msg = f" INFO: Cannot open {outputpw}"
+        print(msg)
         return
 
     sum     =  0

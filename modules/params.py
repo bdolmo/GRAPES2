@@ -81,7 +81,7 @@ def initialize(args):
 
     if args.use_baseline_db:
         if not args.baseline_db:
-            msg = "Missing baseline_db file (--baseline_db param must be filled)"
+            msg = " INFO: Missing baseline_db file (--baseline_db param must be filled)"
             print(msg)
             sys.exit()
 
@@ -148,7 +148,8 @@ def split_large_exons(input_bed, output_bed):
                     new_start = max(start - ext_left, 0)  # avoid negative start
                     new_end = end + ext_right
                     o.write("\t".join([chrom, str(new_start), str(new_end), exon]) + "\n")
-                    print(line)
+                    msg = f" INFO: Extended short exon interval: {line.rstrip()}"
+                    print(msg)
                 # If the exon is larger than 250 bp, consider splitting it.
                 elif size > 250:
                     # Compute the number of segments if using 250 bp segments.
@@ -178,4 +179,3 @@ def split_large_exons(input_bed, output_bed):
                 else:
                     # For exons that are between 10 and 250 bp, output them as is.
                     o.write(line)
-

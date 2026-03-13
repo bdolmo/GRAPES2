@@ -1,15 +1,13 @@
-import os
-import sys
-import re
 import numpy as np
 import pandas as pd
 from collections import defaultdict
 from scipy.special import logsumexp, gammaln
 import math
 import logging
+from scipy.optimize import minimize_scalar
 
 ########################################################################
-# Original utility functions
+# Utility functions
 ########################################################################
 
 def calculate_positional_mean_variance(sample_list, analysis_dict):
@@ -18,51 +16,44 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
     This function reads a BED‐like file (tab–separated) that contains
     normalized depth information per target/region.
     """
-    sample_baselines = {}
     normalized_bed = analysis_dict["normalized_depth"]
     if analysis_dict.get("offtarget", False):
         normalized_bed = analysis_dict["normalized_all"]
-    df_dict = pd.read_csv(normalized_bed, sep="\t").to_dict(orient="index")
+
+    rows = pd.read_csv(normalized_bed, sep="\t").to_dict(orient="records")
+
+    sample_baselines = {}
     for sample in sample_list:
         baseline_samples = []
-        num = 0
-        sample_depth_tag = f"{sample.name}_normalized_final"
-        for control in sample.references:
-            if num > 10:
+        for idx, control in enumerate(sample.references):
+            if idx > 10:
                 break
-            control_depth_tag = f"{control[0]}_normalized_final"
-            baseline_samples.append(control_depth_tag)
-            num += 1
+            baseline_samples.append(f"{control[0]}_normalized_final")
         sample_baselines[sample.name] = baseline_samples
 
-    observations_dict = defaultdict(dict)
-    for region in df_dict:
-        chromosome = df_dict[region]["chr"]
-        coord = ("{}:{}-{}_{}").format(
-            df_dict[region]["chr"],
-            df_dict[region]["start"],
-            df_dict[region]["end"],
-            df_dict[region]["exon"],
-        )
-        if chromosome not in observations_dict:
-            observations_dict[chromosome] = []
-        region_dict = defaultdict(dict)
-        for sample in sample_baselines:
-            region_dict[sample] = defaultdict(dict)
-            sample_depth_tag = f"{sample}_normalized_final"
-            sample_depth = df_dict[region][sample_depth_tag]
-            background_depth = []
-            for control in sample_baselines[sample]:
-                background_depth.append(df_dict[region][control])
+    observations_dict = defaultdict(list)
+    for row in rows:
+        chromosome = row["chr"]
+        exon = row["exon"]
+        coord = f"{row['chr']}:{row['start']}-{row['end']}_{exon}"
+        is_offtarget = "pwindow" in exon
+
+        region_dict = {}
+        for sample_name, baseline_cols in sample_baselines.items():
+            sample_depth_tag = f"{sample_name}_normalized_final"
+            sample_depth = row[sample_depth_tag]
+            background_depth = [row[col] for col in baseline_cols]
             background_mean = round(np.median(background_depth), 6)
             background_std = round(np.std(background_depth), 6)
-            region_dict[sample]["bg_mean"] = background_mean
-            region_dict[sample]["bg_std"] = background_std
-            region_dict[sample]["normalized_depth"] = sample_depth
-            region_dict[sample]["coordinate"] = coord
-            region_dict[sample]["is_offtarget"] = False
-            if "pwindow" in df_dict[region]["exon"]:
-                region_dict[sample]["is_offtarget"] = True
+
+            region_dict[sample_name] = {
+                "bg_mean": background_mean,
+                "bg_std": background_std,
+                "normalized_depth": sample_depth,
+                "coordinate": coord,
+                "is_offtarget": is_offtarget,
+            }
+
         observations_dict[chromosome].append(region_dict)
     return observations_dict
 
@@ -77,9 +68,9 @@ def convert_params(mu, alpha):
     p = 1.0 / (1.0 + alpha * mu)
     return r, p
 
-########################################################################
+##########################################
 # Helper function: update_state_dispersion
-########################################################################
+##########################################
 
 def update_state_dispersion(obs_dict, sample, chr, state_assignments, scale_factor=100, epsilon=1e-8):
     """
@@ -116,7 +107,6 @@ def update_state_dispersion(obs_dict, sample, chr, state_assignments, scale_fact
 
 
 
-from scipy.optimize import minimize_scalar
 
 def estimate_global_dispersion_MLE(obs_dict, sample, chr, scale_factor=100, epsilon=1e-8):
     """
@@ -181,22 +171,21 @@ def update_global_dispersion(obs_dict, sample, chr, scale_factor=100, epsilon=1e
         bg_mean_scaled = bg_mean * scale_factor
         bg_std_scaled = bg_std * scale_factor
 
-        print(bg_mean_scaled)
+        msg = f" INFO: bg_mean_scaled {bg_mean_scaled}"
+        print(msg)
 
         if bg_mean_scaled > epsilon:
             alpha_i = abs((bg_std_scaled**2 - bg_mean_scaled) / (bg_mean_scaled**2))
-            print("alpha_i", alpha_i)
+            msg = f" INFO: alpha_i {alpha_i}"
+            print(msg)
             alpha_i = max(alpha_i, epsilon)
 
             estimates.append(alpha_i)
-    print("before global_dispersion", np.median(estimates))
+    msg = f" INFO: before global_dispersion {np.median(estimates)}"
+    print(msg)
     if estimates:
         median_estimates = np.median(estimates)
         return max(median_estimates, min_alpha)
-        # if median_estimates < 0.01:
-        #     return 0.01
-        # else:
-        #     return median_estimates
     else:
         return min_alpha
 
@@ -415,18 +404,27 @@ if __name__ == "__main__":
         dummy_obs["chr1"].append(region)
         
     sample_name = "sample1"
-    print("=== Running CustomHMM (global dispersion approach) ===")
+    msg = " INFO: Running CustomHMM (global dispersion approach)"
+    print(msg)
     custom_model = CustomHMM(obs_dict=dummy_obs, sample=sample_name, chr="chr1", n_components=5)
     custom_model.fit_dispersion(max_iter=10, tol=1e-3)
     alpha = custom_model.forward()
-    print("Forward probabilities (log-scale):")
-    print(alpha)
+    msg = " INFO: Forward probabilities (log-scale)"
+    print(msg)
+    msg = f" INFO: {alpha}"
+    print(msg)
     posterior = custom_model.posterior_decoding()
-    print("Posterior probabilities:")
-    print(posterior)
+    msg = " INFO: Posterior probabilities"
+    print(msg)
+    msg = f" INFO: {posterior}"
+    print(msg)
     state_path, prob_scores = custom_model.decode()
-    print("Viterbi state path:")
-    print(state_path)
+    msg = " INFO: Viterbi state path"
+    print(msg)
+    msg = f" INFO: {state_path}"
+    print(msg)
     if custom_model._state_dispersion is not None:
-        print("Global dispersion used for all states:")
-        print(custom_model._state_dispersion)
+        msg = " INFO: Global dispersion used for all states"
+        print(msg)
+        msg = f" INFO: {custom_model._state_dispersion}"
+        print(msg)

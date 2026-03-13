@@ -40,10 +40,15 @@ def setup_logging(output_dir: str):
 
     # logging formatting
     logging.basicConfig(
-        filename=log_file, filemode="w", format="%(asctime)s\t%(message)s"
+        filename=log_file,
+        filemode="w",
+        format="%(asctime)s\t%(message)s",
+        level=logging.INFO,
+        force=True,
     )
-    logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger().addHandler(stream_handler)
 
 def main(args):
 
@@ -92,9 +97,6 @@ def main(args):
     # sample_list = plot_normalization(sample_list, analysis_dict)
 
     sample_list, analysis_dict = launch_sample_clustering(sample_list, analysis_dict)
-    # for sample in sample_list:
-    #     print(sample.mean_correlation, sample.enrichment)
-    #     sys.exit()
 
     # calculate ratios
     sample_list, analysis_dict = calculate_coverage_ratios(sample_list, analysis_dict)
@@ -135,6 +137,10 @@ def main(args):
         # Plotting genomewide CNV profile
         sample_plot, sample = cnp.plot_genomewide(genomewide=True, by_chr=False, sample=sample)
 
+    if args.apply_rf:
+        msg = " INFO: Applying RF scoring to VCF calls"
+        logging.info(msg)
+
     for sample in sample_list:
         sv_bed = os.path.join(args.output_dir, sample.name, 
             f"{sample.name}.GRAPES2.breakpoints.bed")
@@ -149,7 +155,7 @@ def main(args):
         merge_bed_files(cnv_bed, sv_bed, merged_bed)
 
         sample = bed_to_vcf(merged_bed, analysis_dict["bed"], sample.bam, args.reference, 
-            final_vcf, sample, args.min_gc, args.max_gc, args.min_mappability, args.min_size)
+            final_vcf, sample, args.min_gc, args.max_gc, args.min_mappability, args.min_size, args.apply_rf)
 
         json_data = json.dumps(sample.analysis_json, indent=2)
 
@@ -178,6 +184,7 @@ def parse_arguments():
         help="Input directory with bam files to be analyzed",
     )
     parser.add_argument(
+        "-o",
         "--output_dir", 
         dest="output_dir", 
         required=True, 
@@ -197,6 +204,7 @@ def parse_arguments():
         dest="threads",
     )
     parser.add_argument(
+        "-d",
         "--database",
         type=str,
         dest="database",
@@ -235,17 +243,19 @@ def parse_arguments():
     parser.add_argument(
         "--force",
         action="store_true", 
+        help="Force recomputation of outputs when files already exist ",
         dest="force",
     )
     parser.add_argument(
         "--use_baseline_db",
         action="store_true", 
+        help="Use of panel baselines",
         dest="use_baseline_db",
     )
 
     parser.add_argument(
         "--baseline_db",
-        help="SQLite database for reference baselines",
+        help="Path to SQLite database for reference baselines (used when --use_baseline_db is set).",
         dest="baseline_db",
     )
 
@@ -333,6 +343,19 @@ def parse_arguments():
         help="Upper cutoff for GC content filtering",
         dest="gc_content_high_cutoff",
     )
+    parser.add_argument(
+        "--apply_rf",
+        action="store_true",
+        help="Apply Random Forest post-processing to generate an additional *.rf.vcf file",
+        dest="apply_rf",
+    )
+    parser.add_argument(
+        "--no_apply_rf",
+        action="store_false",
+        help="Disable Random Forest post-processing",
+        dest="apply_rf",
+    )
+    parser.set_defaults(apply_rf=True)
 
 
     args = parser.parse_args()

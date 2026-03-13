@@ -81,32 +81,43 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
 
     with open(summary_log) as f:
+        header_line = f.readline().rstrip("\n")
+        header_cols = header_line.split("\t")
+        header_idx = {name: idx for idx, name in enumerate(header_cols)}
+
         for line in f:
             line = line.rstrip("\n")
-            if line.startswith("SAMPLE"):
+            if not line:
                 continue
             tmp = line.split("\t")
-            sample_name = tmp[0].replace(".bam", "")
-            
-            for sample in sample_list:
-                if sample.name == sample_name:
-                    gender = "Undefined"
-                    mean_coverage = float(tmp[5])
-                    mean_coverage_X = float(tmp[-1])
-                    threshold = 0.8 
-                    ratio = round(mean_coverage / mean_coverage_X,3) if mean_coverage_X > 0 else 0
-                    if ratio >= threshold:
-                        gender = "Female"
-                    elif ratio > 0 and ratio < threshold-0.2:
-                        gender = "Male"
+            sample_name = tmp[header_idx["SAMPLE"]].replace(".bam", "")
 
-                    sample.add("enrichment", float(tmp[4]))
-                    sample.add("ontarget_reads", int(tmp[2]))
-                    sample.add("mean_coverage", float(tmp[5]))
-                    sample.add("mean_coverage_X", float(tmp[-1]))
-                    sample.add("gender", gender)
-                    msg = f" INFO: {sample.name}\tGender_ratio:{str(ratio)}\tGender:{gender}"
-                    print(msg)
+            for sample in sample_list:
+                if sample.name != sample_name:
+                    continue
+
+                # Robust field extraction by header names.
+                enrichment = float(tmp[header_idx["%ROI"]])
+                ontarget_reads = int(tmp[header_idx["READS_ON_TARGET"]])
+                mean_coverage = float(tmp[header_idx["MEAN_COVERAGE"]])
+                mean_coverage_X = float(tmp[header_idx["MEAN_COVERAGE_X"]])
+
+                # Sex inference from chrX/autosomal depth ratio:
+                # female ~1.0, male ~0.5
+                gender = "Undefined"
+                x_ratio = round(mean_coverage_X / mean_coverage, 3) if mean_coverage > 0 else 0
+                if x_ratio >= 0.75:
+                    gender = "Female"
+                elif x_ratio > 0 and x_ratio <= 0.65:
+                    gender = "Male"
+
+                sample.add("enrichment", enrichment)
+                sample.add("ontarget_reads", ontarget_reads)
+                sample.add("mean_coverage", mean_coverage)
+                sample.add("mean_coverage_X", mean_coverage_X)
+                sample.add("gender", gender)
+                msg = f" INFO: {sample.name}\tGender_ratio_X:{x_ratio}\tGender:{gender}"
+                print(msg)
         f.close()
 
     return sample_list, analysis_dict
@@ -197,8 +208,9 @@ def extract_read_depth_exome(sample_list, analysis_dict, ngs_utils_dict, ann_dic
                 logging.info(msg)
             else:
                 if re.search("error", error):
-                    msg = " ERROR: Could not extract coverage"
-                    logging.error(error)
+                    msg = f" INFO: {error.strip()}"
+                    logging.error(msg)
+                    msg = " INFO: Could not extract coverage"
                     logging.error(msg)
                 else:
                     tmp = error.split("\n")

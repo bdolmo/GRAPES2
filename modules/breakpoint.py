@@ -42,7 +42,8 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, analysis_dict,
 
     # print(' '.join(command))
     result = subprocess.run(command, capture_output=True, text=True)
-    logging.info(' '.join(command))
+    msg = f" INFO: Running GRAPES_SV command: {' '.join(command)}"
+    logging.info(msg)
 
     tmp_files = {
         "FR": os.path.join(output_dir, f"{sample_name}.FR.bam"),
@@ -62,9 +63,11 @@ def call_structural_variants(bam, bed, fasta, output_dir, sample, analysis_dict,
 
 
     if result.returncode != 0:
-        print(f" INFO: Error running GRAPES_SV:\n{result.stderr}")
+        msg = f" INFO: Error running GRAPES_SV: {result.stderr.strip()}"
+        print(msg)
     else:
-        print(f" INFO: GRAPES_SV ran successfully")
+        msg = " INFO: GRAPES_SV ran successfully"
+        print(msg)
 
         raw_file_name = f"{sample_name}.tmp.rawcalls.bed"
         raw_file = os.path.join(output_dir, raw_file_name)

@@ -42,7 +42,7 @@ def import_baselines_to_df(analysis_dict, df):
     session = Session()
 
     if not analysis_dict["bed_md5"]:
-        msg = f' ERROR: missing md5 for {analysis_dict["bed"]}'
+        msg = f' INFO: Missing md5 for {analysis_dict["bed"]}'
         print(msg)
 
     baselines = session.query(BaseLine).filter_by(bed_md5=analysis_dict["bed_md5"]).all()
@@ -193,4 +193,3 @@ def calculate_bed_md5(bed: str)-> str:
     os.remove(tmp_bed)
 
     return md5_hash.hexdigest()
-

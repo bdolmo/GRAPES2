@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 
 import os
-import sys
-import re
 import logging
-import gzip
-from datetime import datetime
 from collections import defaultdict
 from pathlib import Path
-import pandas as pd
 import numpy as np
-import pybedtools
 import subprocess
-from hmmlearn import hmm
 from scipy.special import logsumexp
 
-
 #from modules.hmm import calculate_positional_mean_variance, CustomHMM
+
+# Testing with a negative binomial distribution
 from modules.hmmnb import calculate_positional_mean_variance, CustomHMM
 
 
@@ -61,24 +55,19 @@ def custom_hmm_seg(sample_list, analysis_dict):
             model = CustomHMM(obs_dict, sample.name, chr)
 
             dispersions = model.fit_dispersion(max_iter=10, tol=1e-3)
-            alpha = model.forward()
-            print(sample.name, chr, "dispersion_values", dispersions)
+            model.forward()
+            msg = f" INFO: {sample.name} {chr} dispersion_values {dispersions}"
+            print(msg)
 
             states, phred_scores = model.decode()
             posteriors = model.posterior_decoding()
 
             # Calculate MAP estimates
-            map_states, map_probabilities = model.calculate_map()
+            _, map_probabilities = model.calculate_map()
             log_likelihoods = model.compute_log_likelihood()
             
             # Output results
-            jdx = 0
-            for i, (state_map, prob_map) in enumerate(zip(map_states, map_probabilities)):
-                # state_map = state_map.rstrip("\n")
-                item = chr_dict[chr][jdx]
-                posterior = str(posteriors[jdx]).rstrip("\n")
-                tmp = item["region"].split("\t")
-
+            for jdx, item in enumerate(chr_dict[chr]):
                 # chr15	48704765	48704940	NM_000138_64_65;FBN1	52.0	100.0	-0.813	[-4.040678, 1.361648, -2.714965, -16.251632, -18.420681]	4	0.6206
                 # Convert log likelihoods to a probability vector:
                 logL_vector = np.array(log_likelihoods[jdx])
@@ -87,11 +76,10 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 most_prob = prob_vector[most_state]
                 
                 m.write(f"{item['region']}\t{str(log_likelihoods[jdx])}\t{most_state}\t{most_prob:.4f}"+"\n")
-                jdx += 1
-            idx = 0
             unmerged_list = []
-            for item in chr_dict[chr]:
-                print(item, states, idx)
+            for idx, item in enumerate(chr_dict[chr]):
+                msg = f" INFO: Segment item={item} states={states} idx={idx}"
+                print(msg)
                 state = states[idx]
                 phred = phred_scores[idx][int(state)]              
                 tmp = item["region"].split("\t")
@@ -108,7 +96,6 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 }
                 unmerged_list.append(data_dict)
                 p.write(item["region"] + "\t" + str(state) + "\t" + str(map_probabilities[idx])+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
-                idx += 1
             merged_list = merge_segments(unmerged_list)
             for item in merged_list:
                 out_list = []
@@ -117,6 +104,7 @@ def custom_hmm_seg(sample_list, analysis_dict):
                 o.write("\t".join(out_list) + "\n")  
         o.close()
         p.close()
+        m.close()
 
     return sample_list
 
@@ -214,9 +202,7 @@ def load_observations_by_chr(ratio_file):
                 continue
             line = line.rstrip("\n")
             tmp = line.split("\t")
-            coordinate = ("{}\t{}\t{}\t{}\t{}\t{}\t{}\n").format(
-                tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5], tmp[-1]
-            )
+            coordinate = f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}\t{tmp[3]}\t{tmp[4]}\t{tmp[5]}\t{tmp[-1]}\n"
             chr = tmp[0]
             log2_ratio = tmp[-1]
             if not chr in chr_obs_dict:
@@ -242,9 +228,7 @@ def cbs(sample_list, n_segments=2, alpha=0.05):
                     continue
                 line = line.rstrip("\n")
                 tmp = line.split("\t")
-                outline = ("{}\t{}\t{}\t{}\t{}\n").format(
-                    tmp[0], tmp[1], tmp[2], tmp[3], tmp[-1]
-                )
+                outline = f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}\t{tmp[3]}\t{tmp[-1]}\n"
                 o.write(outline)
             # f.close()
         o.close()
@@ -255,37 +239,29 @@ def cbs(sample_list, n_segments=2, alpha=0.05):
 
         r = open(rscript, "w")
         r.write("library(DNAcopy)" + "\n")
-        line = 'cn <- read.table("{}", header=F)'.format(to_segment)
+        line = f'cn <- read.table("{to_segment}", header=F)'
         r.write(line + "\n")
         line = "CNA.object <-CNA( genomdat = cn[,5], chrom = cn[,1], maploc = cn[,2], data.type = 'logratio')"
         r.write(line + "\n")
         line = "CNA.smoothed <- smooth.CNA(CNA.object)"
         r.write(line + "\n")
-        line = (
-            "segs <- segment(CNA.object, verbose=0, min.width={}, alpha = {})".format(
-                n_segments, alpha
-            )
-        )
+        line = f"segs <- segment(CNA.object, verbose=0, min.width={n_segments}, alpha = {alpha})"
         r.write(line + "\n")
         line = "segs2=segs$output"
         r.write(line + "\n")
-        line = 'write.table(segs2[,2:6], file="{}",row.names=F, col.names=F, quote=F, sep="\t")'.format(
-            segment_file
-        )
+        line = f'write.table(segs2[,2:6], file="{segment_file}",row.names=F, col.names=F, quote=F, sep="\t")'
         r.write(line + "\n")
         r.close()
 
         if not os.path.isfile(segment_file):
 
-            msg = (" INFO: Segmenting sample {}").format(sample.name)
+            msg = f" INFO: Segmenting sample {sample.name}"
             logging.info(msg)
 
-            cmd = ("Rscript {}").format(rscript)
-            p1 = subprocess.run(
+            cmd = f"Rscript {rscript}"
+            subprocess.run(
                 cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
-            output = p1.stdout.decode("UTF-8")
-            error = p1.stderr.decode("UTF-8")
 
         # add header to segment file
         idx = 0

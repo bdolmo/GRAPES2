@@ -23,49 +23,92 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-
 def export_all_calls(sample_list, analysis_dict):
+    min_cnv_score = 0.5
     all_calls_name = f'{analysis_dict["output_name"]}.all.calls.bed'
     all_calls_bed = str(Path(analysis_dict["output_dir"]) / all_calls_name)
-    o = open(all_calls_bed, "w")
-    o.write("sample\tchr\tstart\tend\tinfo\n")
+    sample_calls = defaultdict(list)
+
+    def _get_cnv_score_from_info(info_field):
+        for token in info_field.split(";"):
+            if token.startswith("CNV_SCORE="):
+                try:
+                    return float(token.split("=", 1)[1])
+                except ValueError:
+                    return None
+        return None
+
+    def _parse_info_field(info_field):
+        info_dict = {}
+        for token in info_field.split(";"):
+            if "=" not in token:
+                continue
+            key, value = token.split("=", 1)
+            info_dict[key] = value
+        return info_dict
+
+    def _format_value(value):
+        try:
+            return f"{float(value):.4f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    with open(all_calls_bed, "w") as o:
+        o.write("sample\tchr\tstart\tend\tinfo\n")
+        for sample in sample_list:
+            if sample.analyzable == "False":
+                continue
+            with open(sample.calls_bed) as f:
+                for line in f:
+                    line = line.rstrip("\n")
+                    if line.startswith("chr\tstart"):
+                        continue
+                    tmp = line.split("\t")
+                    if len(tmp) < 4:
+                        continue
+                    cnv_score = _get_cnv_score_from_info(tmp[3])
+                    if cnv_score is None or cnv_score < min_cnv_score:
+                        continue
+                    o.write(sample.name + "\t" + line + "\n")
+                    info_dict = _parse_info_field(tmp[3])
+                    sample_calls[sample.name].append({
+                        "chr": tmp[0],
+                        "start": tmp[1],
+                        "end": tmp[2],
+                        "svtype": info_dict.get("SVTYPE", "NA"),
+                        "cn": info_dict.get("CN", "NA"),
+                        "log2ratio": info_dict.get("LOG2RATIO", "NA"),
+                        "cnv_score": cnv_score,
+                    })
+
+    msg = f" INFO: Final call summary (CNV_SCORE >= {min_cnv_score:.1f})"
+    print(msg)
+    total_calls = 0
     for sample in sample_list:
         if sample.analyzable == "False":
             continue
-        with open(sample.calls_bed) as f:
-            for line in f:
-                line = line.rstrip("\n")
-                if line.startswith("chr\tstart"):
-                    continue
-                # print(line)
-                o.write(sample.name + "\t" + line + "\n")
-        f.close()
-    o.close()
+        calls = sample_calls.get(sample.name, [])
+        n_calls = len(calls)
+        if n_calls == 0:
+            continue
+        total_calls += n_calls
+        msg = f" INFO: {sample.name}\t{n_calls} calls"
+        print(msg)
+        for call in calls:
+            msg = (
+                f" INFO: {call['chr']}:{call['start']}-{call['end']} "
+                f"SVTYPE={call['svtype']} "
+                f"CN={call['cn']} "
+                f"LOG2RATIO={_format_value(call['log2ratio'])} "
+                f"CNV_SCORE={call['cnv_score']:.4f}"
+            )
+            print(msg)
+    if total_calls == 0:
+        msg = " INFO: No calls passed the CNV_SCORE threshold"
+        print(msg)
+    msg = f" INFO: Total calls\t{total_calls}"
+    print(msg)
 
-# def exponential_cv_score(coeff_variation, lower=0.05, upper=0.2, low_score=1.0, high_score=0):
-#     """
-#     Exponentially interpolate a CV score between low_score and high_score.
-    
-#     Parameters:
-#       coeff_variation: the coefficient of variation.
-#       lower: CV value at which the score should be low_score (default 0.05).
-#       upper: CV value at which the score should be high_score (default 0.2).
-#       low_score: score to return when CV <= lower (default 1.0, high quality).
-#       high_score: score to return when CV >= upper (default 0.25, low quality).
-      
-#     Returns:
-#       A score (float) computed via exponential interpolation.
-#     """
-#     if coeff_variation <= lower:
-#         return low_score
-#     elif coeff_variation >= upper:
-#         return high_score
-#     else:
-#         # Compute fractional position between lower and upper.
-#         fraction = (coeff_variation - lower) / (upper - lower)
-#         # Exponential interpolation:
-#         value = low_score * (high_score / low_score) ** fraction
-#         return value
 
 def logarithmic_cv_score(coeff_variation, lower=0.05, upper=0.2, low_score=1.0, high_score=0):
     """
@@ -95,7 +138,134 @@ def logarithmic_cv_score(coeff_variation, lower=0.05, upper=0.2, low_score=1.0, 
         # Linear interpolation between low_score and high_score in score-space:
         return low_score + fraction * (high_score - low_score)
 
-def score_single_exon(svtype, posterior_prob, sampleStd, pctCalls, corr, log2ratio, coeff_variation, cn, nRois):
+
+def _single_exon_dispersion_penalty(sample_std, coeff_variation):
+    """
+    Extra penalty for highly dispersed single-exon calls.
+    Values near/below the start thresholds keep penalty close to 1.0.
+    Higher dispersion is down-weighted exponentially.
+    """
+    # Slightly stronger than the previous version.
+    std_penalty = np.exp(-9.0 * max(0.0, sample_std - 0.10))
+    cv_penalty = np.exp(-12.0 * max(0.0, coeff_variation - 0.10))
+    # Use geometric mean to avoid over-penalizing when only one metric is mildly noisy.
+    combined_penalty = np.sqrt(std_penalty * cv_penalty)
+    return max(min(combined_penalty, 1.0), 0.18)
+
+
+def _multiple_exon_cv_penalty(coeff_variation):
+    """
+    Additional CV penalty for multi-exon calls.
+    This is milder than single-exon, but still down-weights noisy events.
+    """
+    cv_penalty = np.exp(-5.0 * max(0.0, coeff_variation - 0.12))
+    return max(cv_penalty, 0.20)
+
+
+def _clamp01(value):
+    return min(max(value, 0.0), 1.0)
+
+
+def _scaled_noise(value, low, high):
+    """
+    Scale a metric into [0,1], where 0 is low-noise and 1 is high-noise.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not np.isfinite(v):
+        return 1.0
+    if high <= low:
+        return 1.0 if v > low else 0.0
+    return _clamp01((v - low) / (high - low))
+
+
+def compute_sample_noise(sample_std, pct_calls, mean_corr):
+    """
+    Build a sample-level noise index from global metrics.
+    Returns a value in [0,1], where higher means noisier sample.
+    """
+    std_noise = _scaled_noise(sample_std, 0.10, 0.35)
+    pct_calls_noise = _scaled_noise(pct_calls, 0.8, 6.0)
+    try:
+        corr_val = float(mean_corr)
+    except (TypeError, ValueError):
+        corr_val = 0.95
+    if not np.isfinite(corr_val):
+        corr_val = 0.95
+    corr_deficit = max(0.0, 1.0 - corr_val)
+    corr_noise = _scaled_noise(corr_deficit, 0.01, 0.08)
+    return _clamp01(0.45 * std_noise + 0.25 * pct_calls_noise + 0.30 * corr_noise)
+
+
+def _sample_noise_penalty(sample_noise, n_rois):
+    """
+    Convert sample-level noise to multiplicative score penalty.
+    Penalize single-exon calls more strongly than multi-exon calls.
+    """
+    try:
+        noise = float(sample_noise)
+    except (TypeError, ValueError):
+        noise = 0.5
+    if not np.isfinite(noise):
+        noise = 0.5
+    noise = _clamp01(noise)
+    is_single_exon = int(n_rois) == 1
+    k = 2.2 if is_single_exon else 1.3
+    floor = 0.18 if is_single_exon else 0.30
+    return max(min(np.exp(-k * noise), 1.0), floor)
+
+
+def _kl_resolution_score(kl_divergence):
+    """
+    Convert KL divergence to a bounded [0, 1] score.
+    """
+    if kl_divergence is None:
+        return 0.5
+    try:
+        kl_value = float(kl_divergence)
+    except (TypeError, ValueError):
+        return 0.5
+    if not np.isfinite(kl_value):
+        return 0.5
+    kl_value = max(0.0, kl_value)
+    return min(1.0 - np.exp(-kl_value / 0.7), 1.0)
+
+
+def _single_exon_log2_snr_score(per_base_log2_snr):
+    """
+    Normalize per-base log2-ratio SNR score into [0,1].
+    Accepts either a pre-normalized metric or a raw SNR value.
+    """
+    if per_base_log2_snr is None:
+        return 0.5
+    try:
+        snr_val = float(per_base_log2_snr)
+    except (TypeError, ValueError):
+        return 0.5
+    if not np.isfinite(snr_val):
+        return 0.5
+    if 0.0 <= snr_val <= 1.0:
+        return snr_val
+    snr_val = max(0.0, snr_val)
+    return min(1.0 - np.exp(-snr_val / 2.5), 1.0)
+
+
+def score_single_exon(
+    svtype,
+    posterior_prob,
+    sampleStd,
+    pctCalls,
+    corr,
+    log2ratio,
+    coeff_variation,
+    cn,
+    nRois,
+    kl_divergence=None,
+    per_base_log2_snr=None,
+    sample_noise=0.0,
+):
     """
     Compute a CNV score for a single-exon call based on multiple evidence,
     converting the observed log2 ratio to a linear ratio.
@@ -120,28 +290,41 @@ def score_single_exon(svtype, posterior_prob, sampleStd, pctCalls, corr, log2rat
     corrMetric = 1 if corr > 0.97 else 0
     SLM = 0.45 * stdMetric + 0.45 * pctCallsMetric + 0.1 * corrMetric
 
-    # Convert observed log2 ratio to linear ratio.
-    observed_ratio = 2 ** log2ratio
-
-    # Expected ratio on a linear scale: For CN=2 we expect a ratio of 1, etc.
+    # Major quality contributor for single-exon calls:
+    # distance between observed and expected log2 ratio.
     expected_ratio = cn / 2.0
-
-    # Compute the absolute difference metric (scaled by 2.5)
-    absDiff = 2.5 * abs(observed_ratio - expected_ratio)
-
-    absDiffMetric = 1 - absDiff if (1 - absDiff) > 0 else 0
+    if expected_ratio <= 0:
+        expected_log2ratio = -2.5
+    else:
+        expected_log2ratio = math.log2(expected_ratio)
+    log2_diff = abs(log2ratio - expected_log2ratio)
+    absDiffMetric = 1.0 / (1.0 + (log2_diff / 0.2) ** 2)
 
     cvScore = logarithmic_cv_score(coeff_variation)
+    try:
+        posteriorMetric = float(posterior_prob)
+    except (TypeError, ValueError):
+        posteriorMetric = 0.5
+    posteriorMetric = min(max(posteriorMetric, 0.0), 1.0)
+    klMetric = _kl_resolution_score(kl_divergence)
+    snrMetric = _single_exon_log2_snr_score(per_base_log2_snr)
 
-    RLM = 0.5*absDiffMetric + 0.5*cvScore
+    RLM = (
+        0.52 * absDiffMetric
+        + 0.15 * cvScore
+        + 0.13 * posteriorMetric
+        + 0.10 * klMetric
+        + 0.10 * snrMetric
+    )
 
-    print("cv:", coeff_variation, "cvScore:", cvScore , "observed_ratio:", observed_ratio, "expected_ratio:", expected_ratio, "absDiff:", absDiff, "absDiffMetric:", absDiffMetric, "SLM:", SLM, "RLM:", RLM)
-
-    score = 0.4 * SLM + 0.6 * RLM
+    score = 0.15 * SLM + 0.85 * RLM
+    score *= _single_exon_dispersion_penalty(sampleStd, coeff_variation)
+    score *= _sample_noise_penalty(sample_noise, nRois)
+    score = min(max(score, 0.0), 1.0)
     return score
 
 
-def score_multiple_exon(svtype, posterio_prob, sampleStd, pctCalls, corr, log2ratio, coeff_variation, cn, nRois):
+def score_multiple_exon(svtype, posterio_prob, sampleStd, pctCalls, corr, log2ratio, coeff_variation, cn, nRois, sample_noise=0.0):
     """
     Compute a CNV score for a multiple-exon call based on multiple evidence.
     The observed log2 ratio is converted to a linear ratio.
@@ -183,6 +366,9 @@ def score_multiple_exon(svtype, posterio_prob, sampleStd, pctCalls, corr, log2ra
         RLM = 1
 
     score = 0.4 * SLM + 0.6 * RLM
+    score *= _multiple_exon_cv_penalty(coeff_variation)
+    score *= _sample_noise_penalty(sample_noise, nRois)
+    score = min(max(score, 0.0), 1.0)
     return score
 
 #########################################
@@ -218,6 +404,7 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
     """
 
     total_rois = get_total_lines_bed(analysis_dict["bed"])
+    min_cnv_score = 0.5
     
 
     for sample in sample_list:
@@ -227,6 +414,7 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
         total_calls = get_total_lines_bed(sample.cnv_calls_bed)
 
         pctCalls = 100*(total_calls/total_rois)
+        sample_noise = compute_sample_noise(sample.std_log2_ratio, pctCalls, sample.mean_correlation)
 
         # Output file name
         target_name = f'{sample.name}.GRAPES2.cnv.bed'
@@ -270,6 +458,25 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
                 nRois = int(tmp[7])
                 log2ratio = float(tmp[8])
                 posterior_prob = float(tmp[10])
+                kl_divergence = None
+                per_base_log2_snr = None
+                if nRois == 1 and len(tmp) > 11:
+                    aux_metric = tmp[11]
+                    if "|" in aux_metric:
+                        kl_str, snr_str = aux_metric.split("|", 1)
+                        try:
+                            kl_divergence = float(kl_str)
+                        except (TypeError, ValueError):
+                            kl_divergence = None
+                        try:
+                            per_base_log2_snr = float(snr_str)
+                        except (TypeError, ValueError):
+                            per_base_log2_snr = None
+                    else:
+                        try:
+                            kl_divergence = float(aux_metric)
+                        except (TypeError, ValueError):
+                            kl_divergence = None
 
                 # Convert log2ratio to ratio: 2^(log2ratio)
                 # ratio = 2 ** log2ratio
@@ -281,10 +488,16 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
                 # Choose scoring function based on nRois (if >1, treat as multiple exon call)
                 if nRois > 1:
                     cnv_score = score_multiple_exon(svtype, posterior_prob, sample.std_log2_ratio, 
-                        pctCalls, sample.mean_correlation, log2ratio, cv, cn, nRois)
+                        pctCalls, sample.mean_correlation, log2ratio, cv, cn, nRois, sample_noise=sample_noise)
                 else:
                     cnv_score = score_single_exon(svtype, posterior_prob, sample.std_log2_ratio, 
-                        pctCalls, sample.mean_correlation, log2ratio, cv, cn, nRois)
+                        pctCalls, sample.mean_correlation, log2ratio, cv, cn, nRois,
+                        kl_divergence=kl_divergence,
+                        per_base_log2_snr=per_base_log2_snr,
+                        sample_noise=sample_noise)
+
+                if cnv_score < min_cnv_score:
+                    continue
 
                 # Prepare the INFO field
                 info = {
@@ -370,7 +583,6 @@ def kl_gaussian(mu1, sigma1, mu2, sigma2, epsilon=1e-10):
     """
     return np.log((sigma2+epsilon)/(sigma1+epsilon)) + (sigma1**2 + (mu1 - mu2)**2)/(2*(sigma2**2+epsilon)) - 0.5
 
-# Example snippet within filter_single_exon_cnv:
 def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, analysis_dict):
     """
     Filter single-exon CNVs using a Gaussian-based likelihood model and include a KL divergence measure.
@@ -390,7 +602,8 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
     for sample in sample_list:
         if sample.analyzable == "False":
             continue
-        print(f"INFO: Calling single-exon CNVs on sample {sample.name}")
+        msg = f" INFO: Calling single-exon CNVs on sample {sample.name}"
+        print(msg)
         
         # Intersect candidate calls with normalized per-base coverage.
         a = pybedtools.BedTool(sample.raw_single_exon_calls)
@@ -422,6 +635,7 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                     "case_coverage": [],
                     "controls_coverage": [],
                     "case_ratios": [],
+                    "case_log2_ratios": [],
                     "control_ratios": [],
                     "case_median_ratio": "",
                     "cv": None
@@ -444,9 +658,16 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 samples_cov_dict[s[0]] = control_coverage
                 background_cov_list.append(control_coverage)
             
+            # Keep only finite control coverage values to avoid invalid mean/std operations.
+            valid_background_cov = [x for x in background_cov_list if np.isfinite(x)]
+
             # Compute coefficient of variation (CV) for controls.
-            if len(background_cov_list) > 0:
-                cv = np.std(background_cov_list) / np.median(background_cov_list)
+            if valid_background_cov:
+                median_bg_cov = np.median(valid_background_cov)
+                if np.isfinite(median_bg_cov) and median_bg_cov > 0:
+                    cv = np.std(valid_background_cov) / median_bg_cov
+                else:
+                    cv = 1.0
             else:
                 cv = 1.0
             candidate_cnvs[cnv_call]["cv"] = cv
@@ -457,21 +678,33 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 "end": tmp_line[2],
                 "info": tmp_line[3]
             }
-            mean_bg_coverage = np.median(background_cov_list) if len(background_cov_list) > 0 else 0.001
-            if mean_bg_coverage == 0:
+            mean_bg_coverage = np.median(valid_background_cov) if valid_background_cov else 0.001
+            if not np.isfinite(mean_bg_coverage) or mean_bg_coverage <= 0:
                 mean_bg_coverage = 0.001
-            if case_coverage == 0:
+            if not np.isfinite(case_coverage) or case_coverage <= 0:
                 case_sample_ratio = -3
+                case_bg_ratio = 0.0
             else:
-                case_sample_ratio = math.log2(case_coverage / mean_bg_coverage)
+                case_bg_ratio = case_coverage / mean_bg_coverage
+                case_sample_ratio = math.log2(case_bg_ratio)
             row_dict[sample.name] = case_sample_ratio
-            candidate_cnvs[cnv_call]["case_ratios"].append(case_coverage / mean_bg_coverage)
-            candidate_cnvs[cnv_call]["case_median_ratio"] = case_coverage / mean_bg_coverage
+            candidate_cnvs[cnv_call]["case_ratios"].append(case_bg_ratio)
+            candidate_cnvs[cnv_call]["case_log2_ratios"].append(case_sample_ratio)
+            candidate_cnvs[cnv_call]["case_median_ratio"] = case_bg_ratio
             
             for control_sample in samples_cov_dict:
-                bg_for_control = [samples_cov_dict[other] for other in samples_cov_dict if other != control_sample]
+                bg_for_control = [
+                    samples_cov_dict[other]
+                    for other in samples_cov_dict
+                    if other != control_sample and np.isfinite(samples_cov_dict[other])
+                ]
                 median_bg = np.median(bg_for_control) if len(bg_for_control) > 0 else 0.001
-                if samples_cov_dict[control_sample] == 0:
+                if (
+                    not np.isfinite(samples_cov_dict[control_sample])
+                    or samples_cov_dict[control_sample] <= 0
+                    or not np.isfinite(median_bg)
+                    or median_bg <= 0
+                ):
                     control_ratio = -3
                 else:
                     control_ratio = math.log2(samples_cov_dict[control_sample] / median_bg)
@@ -482,12 +715,20 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
         # Process candidate CNVs.
         for cnv_call in candidate_cnvs:
             tmp_cnv_call = cnv_call.split("\t")
-            median_cov_case = np.median(candidate_cnvs[cnv_call]["case_coverage"])
-            median_cov_controls = np.median(candidate_cnvs[cnv_call]["controls_coverage"])
-            std_cov_controls = np.std(candidate_cnvs[cnv_call]["controls_coverage"])
-            if median_cov_controls == 0:
+            valid_case_cov = [x for x in candidate_cnvs[cnv_call]["case_coverage"] if np.isfinite(x)]
+            valid_control_cov = [x for x in candidate_cnvs[cnv_call]["controls_coverage"] if np.isfinite(x)]
+            if not valid_case_cov or not valid_control_cov:
+                continue
+
+            median_cov_case = np.median(valid_case_cov)
+            median_cov_controls = np.median(valid_control_cov)
+            std_cov_controls = np.std(valid_control_cov)
+            if not np.isfinite(median_cov_controls) or median_cov_controls <= 0:
                 median_cov_controls = 0.001
-            if median_cov_case == 0:
+            if not np.isfinite(std_cov_controls) or std_cov_controls <= 0:
+                std_cov_controls = 0.001
+
+            if not np.isfinite(median_cov_case) or median_cov_case <= 0:
                 signal_ratio = -3
             else:
                 signal_ratio = round(math.log2(median_cov_case / median_cov_controls), 3)
@@ -509,15 +750,27 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
 
             single_prob = probs[int(cn)]
 
-            # --- Now compute KL divergence between heterozygous deletion and diploid states ---
+            # Now compute KL divergence between heterozygous deletion and diploid states distributions
+            # THe idea is to calculate the overlap between these distributions to account for how much uncertainity may be
             # For heterozygous deletion (CN=1): effective ratio = 0.5; for diploid (CN=2): ratio = 1.
             expected_depth_het = median_cov_controls * 0.5
             expected_depth_dip = median_cov_controls * 1.0
             # Assume the standard deviation is std_cov_controls for both.
             kl_val = kl_gaussian(expected_depth_het, std_cov_controls, expected_depth_dip, std_cov_controls)
-            
-            # Use a threshold for KL divergence (e.g., require KL >= 0.5 for adequate resolution)
-            kl_threshold = 0.5
+
+            valid_case_log2 = [
+                x for x in candidate_cnvs[cnv_call]["case_log2_ratios"]
+                if np.isfinite(x) and x > -2.95
+            ]
+            valid_controls_log2 = [
+                x for x in candidate_cnvs[cnv_call]["control_ratios"]
+                if np.isfinite(x) and x > -2.95
+            ]
+            case_log2_snr = signal_to_noise(valid_case_log2) if valid_case_log2 else 0.0
+            controls_log2_snr = signal_to_noise(valid_controls_log2) if valid_controls_log2 else 0.0
+            case_snr_component = 1.0 - np.exp(-case_log2_snr / 2.5)
+            contrast_component = case_log2_snr / (case_log2_snr + controls_log2_snr + 0.25)
+            snr_metric = min(max(0.7 * case_snr_component + 0.3 * contrast_component, 0.0), 1.0)
             
             cv_value = candidate_cnvs[cnv_call].get("cv", 1.0)
             if signal_ratio <= upper_del_threshold or signal_ratio >= dup_threshold:
@@ -527,9 +780,16 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                     # Here, you can either output the KL divergence as part of the call or use it to adjust a score.
                     # We'll output the call with the KL value.
                     tmp_cnv_call[-2] = str(single_prob)
+                    tmp_cnv_call[-1] = f"{kl_val:.4f}|{snr_metric:.4f}"
                     final_call = '\t'.join(tmp_cnv_call)
                     o.write(final_call + "\t" + svtype_final + "\t" + str(cv_value) + "\n")
-                    print(sample.name, "median_cov_controls:", median_cov_controls, "std.dev controls:", std_cov_controls, "CV:", cv_value, "KL divergence:", kl_val, cnv_call, "signal_ratio:", signal_ratio, "zscore:", z_score)
+                    msg = (
+                        f" INFO: {sample.name} median_cov_controls={median_cov_controls:.4f} "
+                        f"std_dev_controls={std_cov_controls:.4f} CV={cv_value:.4f} "
+                        f"KL_divergence={kl_val:.4f} cnv_call={cnv_call} "
+                        f"signal_ratio={signal_ratio:.4f} zscore={z_score:.4f}"
+                    )
+                    print(msg)
         o.close()
     return sample_list
 
@@ -948,6 +1208,10 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                 if gc_content < 20 or gc_content > 80:
                     continue
 
+                # Require the single-exon log2 ratio to pass DEL or DUP thresholds.
+                if not (log2_ratio <= upper_del_threshold or log2_ratio >= dup_threshold):
+                    continue
+
                 cnvtype = ""
                 # Check duplication
                 if cn > 2:
@@ -1062,9 +1326,8 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
         segmented_cnvs_dict = get_segmented_cnvs(ratio_no_header, tmp_calls)
 
         o = open(cnv_calls_bed, "w")
-        o.write("chr\tstart\tend\tregions\tgc\tmap\tz_score\tn_regions\tlog2_ratio\tcopy_number\tscore\tx\tcnvtype\tstd\tcv\n")
+        o.write("chr\tstart\tend\tregions\tgc\tmap\tz_score\tn_regions\tlog2_ratio\tcopy_number\tscore\tkl_snr\tcnvtype\tstd\tcv\n")
         for variant in segmented_cnvs_dict:
-            print("insegment", variant)
             arr = np.array(segmented_cnvs_dict[variant]["ratios"])
             std = round(np.std(arr), 3)
             tmp_variant = variant.split("\t")

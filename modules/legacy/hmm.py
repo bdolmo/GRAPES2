@@ -12,61 +12,44 @@ from scipy.special import logsumexp
 import math 
 
 def calculate_positional_mean_variance(sample_list, analysis_dict):
-    """ """
-    sample_baselines = {}
-
+    """Build per-chromosome observation dictionaries for HMM emissions."""
     normalized_bed = analysis_dict["normalized_depth"]
-    if analysis_dict["offtarget"]:
+    if analysis_dict.get("offtarget", False):
         normalized_bed = analysis_dict["normalized_all"]
 
-    df_dict = pd.read_csv(normalized_bed, sep="\t").to_dict(
-        orient="index"
-    )
+    rows = pd.read_csv(normalized_bed, sep="\t").to_dict(orient="records")
+
+    sample_baselines = {}
     for sample in sample_list:
         baseline_samples = []
-        num = 0
-        sample_depth_tag = f"{sample.name}_normalized_final"
-        for control in sample.references:
-            if num > 10:
+        for idx, control in enumerate(sample.references):
+            if idx > 10:
                 break
-            control_depth_tag = f"{control[0]}_normalized_final"
-            baseline_samples.append(control_depth_tag)
-            num += 1
+            baseline_samples.append(f"{control[0]}_normalized_final")
         sample_baselines[sample.name] = baseline_samples
 
-    observations_dict = defaultdict(dict)
-    # here calculate distribution params
-    for region in df_dict:
-        chromosome = df_dict[region]["chr"]
-        coord = ("{}:{}-{}_{}").format(
-            df_dict[region]["chr"],
-            df_dict[region]["start"],
-            df_dict[region]["end"],
-            df_dict[region]["exon"],
-        )
+    observations_dict = defaultdict(list)
+    for row in rows:
+        chromosome = row["chr"]
+        exon = row["exon"]
+        coord = f"{row['chr']}:{row['start']}-{row['end']}_{exon}"
+        is_offtarget = "pwindow" in exon
 
-        if not chromosome in observations_dict:
-            observations_dict[chromosome] = []
-        region_dict = defaultdict(dict)
-        for sample in sample_baselines:
-
-            region_dict[sample] = defaultdict(dict)
-            sample_depth_tag = ("{}_normalized_final").format(sample)
-            sample_depth = df_dict[region][sample_depth_tag]
-            background_depth = []
-            for control in sample_baselines[sample]:
-                background_depth.append(df_dict[region][control])
-
+        region_dict = {}
+        for sample_name, baseline_cols in sample_baselines.items():
+            sample_depth_tag = f"{sample_name}_normalized_final"
+            sample_depth = row[sample_depth_tag]
+            background_depth = [row[col] for col in baseline_cols]
             background_mean = round(np.median(background_depth), 6)
             background_std = round(np.std(background_depth), 6)
 
-            region_dict[sample]["bg_mean"] = background_mean
-            region_dict[sample]["bg_std"] = background_std
-            region_dict[sample]["normalized_depth"] = sample_depth
-            region_dict[sample]["coordinate"] = coord
-            region_dict[sample]["is_offtarget"] = False
-            if "pwindow" in df_dict[region]["exon"]:
-                region_dict[sample]["is_offtarget"] = True
+            region_dict[sample_name] = {
+                "bg_mean": background_mean,
+                "bg_std": background_std,
+                "normalized_depth": sample_depth,
+                "coordinate": coord,
+                "is_offtarget": is_offtarget,
+            }
 
         observations_dict[chromosome].append(region_dict)
     return observations_dict

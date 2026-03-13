@@ -48,7 +48,7 @@ def evaluate_single_exon_cnvs(sample_list, analysis_dict):
                 n_regions = tmp[4]
                 exon = tmp[3]
                 if n_regions == "1":
-                    candidate_name = ("{}.bed").format("_".join(tmp[0:3]))
+                    candidate_name = f"{'_'.join(tmp[0:3])}.bed"
                     candidate_bed = str(Path(sample.sample_folder) / candidate_name)
                     o = open(candidate_bed, "w")
                     o.write("\t".join(tmp[0:5]) + "\n")
@@ -124,23 +124,14 @@ def evaluate_single_exon_cnvs(sample_list, analysis_dict):
                     median_log2ratio_controls = np.median(log2_ratios_controls)
                     s2n_controls = signal_to_noise(log2_ratios_controls)
 
-                    print(
-                        sample.name
-                        + " "
-                        + exon
-                        + " "
-                        + str(median_log2ratio_case)
-                        + " "
-                        + str(s2n_case)
-                        + " "
-                        + str(median_log2ratio_controls)
-                        + " "
-                        + str(s2n_controls)
+                    msg = (
+                        f" INFO: {sample.name} {exon} "
+                        f"{median_log2ratio_case} {s2n_case} "
+                        f"{median_log2ratio_controls} {s2n_controls}"
                     )
+                    print(msg)
 
-                    output_png_name = ("{}_{}.png").format(
-                        sample.name, "_".join(tmp[0:4])
-                    )
+                    output_png_name = f"{sample.name}_{'_'.join(tmp[0:4])}.png"
                     output_png = str(Path(sample.sample_folder) / output_png_name)
                     # plot_single_exon(plot_dict, sample.name, exon, output_png)
 
