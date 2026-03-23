@@ -43,8 +43,15 @@ def calculate_positional_mean_variance(sample_list, analysis_dict):
             sample_depth_tag = f"{sample_name}_normalized_final"
             sample_depth = row[sample_depth_tag]
             background_depth = [row[col] for col in baseline_cols]
-            background_mean = round(np.median(background_depth), 6)
-            background_std = round(np.std(background_depth), 6)
+            finite_background_depth = [
+                depth for depth in background_depth if np.isfinite(depth)
+            ]
+            if finite_background_depth:
+                background_mean = round(np.median(finite_background_depth), 6)
+                background_std = round(np.std(finite_background_depth), 6)
+            else:
+                background_mean = np.nan
+                background_std = np.nan
 
             region_dict[sample_name] = {
                 "bg_mean": background_mean,
@@ -132,7 +139,9 @@ def estimate_global_dispersion_MLE(obs_dict, sample, chr, scale_factor=100, epsi
             # Scale the observed and expected counts
             x = region[sample]["normalized_depth"] * scale_factor
             mu = region[sample]["bg_mean"] * scale_factor
-            if mu < epsilon:
+            if not np.isfinite(x) or x < 0:
+                x = epsilon
+            if not np.isfinite(mu) or mu < epsilon:
                 continue  # skip regions with essentially no signal
             if alpha < epsilon:
                 return np.inf
@@ -264,7 +273,11 @@ class CustomHMM:
             sample_depth = region[self._sample]["normalized_depth"] * sf
             bg_depth = region[self._sample]["bg_mean"] * sf
             bg_std = region[self._sample]["bg_std"] * sf
-            if bg_std < epsilon:
+            if not np.isfinite(sample_depth) or sample_depth < 0:
+                sample_depth = epsilon
+            if not np.isfinite(bg_depth) or bg_depth < epsilon:
+                bg_depth = epsilon
+            if not np.isfinite(bg_std) or bg_std < epsilon:
                 bg_std = epsilon
 
             state_list = []

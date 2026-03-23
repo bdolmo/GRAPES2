@@ -314,15 +314,21 @@ class CnvPlot:
         cnr_df = cnr_df.reset_index(drop=True)  # Reset the index to maintain the new order
 
         sample_ratio = self._sample + "_ratio"
-        min_ratio = cnr_df[sample_ratio].min()
-        min_limit = -3.5
-        if min_ratio <= -3:
-            min_limit = -3.5
+        cnr_df[sample_ratio] = pd.to_numeric(cnr_df[sample_ratio], errors="coerce")
+        finite_ratios = cnr_df[sample_ratio][np.isfinite(cnr_df[sample_ratio])]
 
-        max_ratio = cnr_df[sample_ratio].max()
+        min_limit = -3.5
         max_limit = 1
-        if max_ratio > max_limit:
-            max_limit = max_ratio+0.2
+        if not finite_ratios.empty:
+            max_ratio = finite_ratios.max()
+            if max_ratio > max_limit:
+                max_limit = max_ratio + 0.2
+        else:
+            msg = (
+                " WARNING: No finite ratio values found for sample %s while "
+                "plotting genomewide profile; using default y-axis limits"
+            )
+            logging.warning(msg, self._sample)
         
         # Setting chromosome color
         palette_dict = defaultdict(dict)
@@ -372,7 +378,9 @@ class CnvPlot:
             ratio_plot.set_xticklabels(unique_chromosomes, rotation=40, size=15)
             ratio_plot.set_yticks(ratio_plot.get_yticks())
             ratio_plot.set_yticklabels(ratio_plot.get_yticks(), size=15)
-            ratio_plot.get_legend().remove()
+            legend = ratio_plot.get_legend()
+            if legend is not None:
+                legend.remove()
             ratio_plot.set_xlabel("", fontsize=20)
             ratio_plot.set_ylabel("log2 Ratio", fontsize=20)
             ratio_plot.axhline(self._dup_cutoff, ls="--", color="blue")

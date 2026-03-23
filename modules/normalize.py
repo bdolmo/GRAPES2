@@ -433,7 +433,7 @@ def normalize_exon_level(input_bed, sample_list, fields):
             # Group coverage by field and calculate the median
             df[median_field_cov_autosomes] = (
                 df[(df["chr"] != "chrX") & (df["chr"] != "chrY")]
-                .groupby("gc_bin")[cov_target]
+                .groupby("gc_bin", observed=False)[cov_target]
                 .transform(
                     median_by_interval,
                     cov_target=cov_target,
@@ -442,21 +442,21 @@ def normalize_exon_level(input_bed, sample_list, fields):
             )
             df[median_field_cov_chrX] = (
                 df[(df["chr"] == "chrX")]
-                .groupby("gc_bin")[cov_target]
+                .groupby("gc_bin", observed=False)[cov_target]
                 .transform(
                     median_by_interval, cov_target=cov_target, median=median_cov_chrX
                 )
             )
             df[median_field_cov_chrY] = (
                 df[(df["chr"] == "chrY")]
-                .groupby("gc_bin")[cov_target]
+                .groupby("gc_bin", observed=False)[cov_target]
                 .transform(
                     median_by_interval, cov_target=cov_target, median=median_cov_chrY
                 )
             )   
 
             #print(df.groupby("gc_bin").size().to_dict())
-            gc_bin_dict = df.groupby("gc_bin").size().to_dict()
+            gc_bin_dict = df.groupby("gc_bin", observed=False).size().to_dict()
 
             # Apply rolling median
             normalized_field = f"{sample.name}_normalized_{field}"
@@ -490,6 +490,20 @@ def median_by_interval(x, cov_target, median):
     return median_interval
 
 
+def safe_gc_normalization(raw_cov, target_median, interval_median):
+    """Return a normalized coverage value only when the scale factors are usable."""
+    if not np.isfinite(raw_cov):
+        return raw_cov
+
+    if not np.isfinite(target_median) or target_median <= 0:
+        return raw_cov
+
+    if not np.isfinite(interval_median) or interval_median <= 0:
+        return raw_cov
+
+    return round((raw_cov * target_median) / interval_median, 6)
+
+
 def apply_normalization(row, cov_target, stats_dict, field, gc_bin_dict):
     """
     Normalization
@@ -499,38 +513,30 @@ def apply_normalization(row, cov_target, stats_dict, field, gc_bin_dict):
     median_field_autosomes = f"median_{field}_cov_autosomes"
     
     gc_bin = row["gc_bin"]
-    gc_bin_size = 0
-    
-    try:
-        gc_bin_dict[gc_bin]
-    except:
-        pass
-    else:
-        gc_bin_size = gc_bin_dict[gc_bin]
+    gc_bin_size = gc_bin_dict.get(gc_bin, 0)
 
     norm_cov = row[cov_target]
 
-    if row[median_field_chrY] == 0:
-        row[median_field_chrY] = 0.01
-
     if row["chr"] == "chrX":
         if gc_bin_size > 30:
-            norm_cov = round(
-                (row[cov_target] * stats_dict["median_cov_chrX"]) / row[median_field_chrX],
-                6,
+            norm_cov = safe_gc_normalization(
+                row[cov_target],
+                stats_dict["median_cov_chrX"],
+                row[median_field_chrX],
             )
     elif row["chr"] == "chrY":
         if gc_bin_size > 30:
-            norm_cov = round(
-                (row[cov_target] * stats_dict["median_cov_chrY"]) / row[median_field_chrY],
-                6,
+            norm_cov = safe_gc_normalization(
+                row[cov_target],
+                stats_dict["median_cov_chrY"],
+                row[median_field_chrY],
             )
     else:
         if gc_bin_size > 30:
-            norm_cov = round(
-                (row[cov_target] * stats_dict["median_cov_autosomes"])
-                / row[median_field_autosomes],
-                6,
+            norm_cov = safe_gc_normalization(
+                row[cov_target],
+                stats_dict["median_cov_autosomes"],
+                row[median_field_autosomes],
             )
 
     return norm_cov

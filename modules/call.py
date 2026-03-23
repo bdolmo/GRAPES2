@@ -23,6 +23,34 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
+def compute_zscore_and_cv(log2_ratio, sample):
+    sample_mean = getattr(sample, "mean_log2_ratio", np.nan)
+    sample_std = getattr(sample, "std_log2_ratio", np.nan)
+
+    if (
+        np.isfinite(log2_ratio)
+        and np.isfinite(sample_mean)
+        and np.isfinite(sample_std)
+        and sample_std > 0
+    ):
+        zscore = round((log2_ratio - sample_mean) / sample_std, 3)
+    else:
+        zscore = np.nan
+
+    denom = log2_ratio + 0.01
+    if (
+        not np.isfinite(sample_std)
+        or sample_std <= 0
+        or not np.isfinite(denom)
+        or abs(denom) < 1e-8
+    ):
+        cv = np.nan
+    else:
+        cv = sample_std / denom
+
+    return zscore, cv
+
+
 def export_all_calls(sample_list, analysis_dict):
     min_cnv_score = 0.5
     all_calls_name = f'{analysis_dict["output_name"]}.all.calls.bed'
@@ -1114,13 +1142,7 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                 prob_score = float(tmp[7])
 
                 mean_gc, mean_map = get_gc_map_from_segment(chrom, start, end, ratio_file_no_header)
-                zscore = round((log2_ratio - sample.mean_log2_ratio) / sample.std_log2_ratio, 3)
-
-                denom = log2_ratio + 0.01
-                if abs(denom) < 1e-8:
-                    cv = np.nan
-                else:
-                    cv = sample.std_log2_ratio / denom
+                zscore, cv = compute_zscore_and_cv(log2_ratio, sample)
 
                 # Filters:
                 if mean_gc < 20 or mean_gc > 80:
@@ -1195,13 +1217,7 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
                     continue
                 
                 cn = int(state)
-                zscore = round((log2_ratio - sample.mean_log2_ratio) / sample.std_log2_ratio, 3)
-                # print(log2_ratio)
-                denom = log2_ratio + 0.01
-                if abs(denom) < 1e-8:
-                    cv = np.nan
-                else:
-                    cv = sample.std_log2_ratio / denom
+                zscore, cv = compute_zscore_and_cv(log2_ratio, sample)
 
                 # cv = sample.std_log2_ratio/log2_ratio
 
