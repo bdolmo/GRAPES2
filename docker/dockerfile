@@ -1,6 +1,7 @@
-# Start from a pinned Python 3.11 Debian Bookworm image
-FROM python:3.11-slim-bookworm
+# Start from a pinned Python slim image
+# FROM python:3.12.3-slim
 
+FROM public.ecr.aws/docker/library/python:3.11-slim-bookworm
 # Set the working directory in the container
 WORKDIR /usr/src/app
 
