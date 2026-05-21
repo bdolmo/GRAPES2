@@ -33,6 +33,26 @@ import json
 main_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(main_dir, "/modules"))
 
+
+def resolve_single_exon_cnv_setting(args, analysis_dict):
+    if args.single_exon_cnv is not None:
+        return args.single_exon_cnv
+
+    target_count = analysis_dict.get("target_count", 0)
+    single_exon_cnv = target_count <= args.single_exon_cnv_target_limit
+    if single_exon_cnv:
+        msg = (
+            f" INFO: Single-exon CNV analysis enabled by default "
+            f"({target_count} targets <= {args.single_exon_cnv_target_limit})"
+        )
+    else:
+        msg = (
+            f" INFO: Single-exon CNV analysis skipped by default "
+            f"({target_count} targets > {args.single_exon_cnv_target_limit})"
+        )
+    logging.info(msg)
+    return single_exon_cnv
+
 def setup_logging(output_dir: str):
     output_name = os.path.basename(os.path.normpath(output_dir))
     log_file_name = f"{output_name}.grapes.log"
@@ -66,6 +86,8 @@ def main(args):
 
     # I/O Initialization
     sample_list, analysis_dict, ngs_utils_dict, ann_dict = initialize(args)
+    single_exon_cnv = resolve_single_exon_cnv_setting(args, analysis_dict)
+    analysis_dict["single_exon_cnv"] = single_exon_cnv
 
     # Off-target depth extraction
     if args.offtarget:
@@ -106,13 +128,18 @@ def main(args):
 
     # Raw cnv calling
     sample_list = call_raw_cnvs(
-        sample_list, analysis_dict, args.upper_del_cutoff, args.lower_dup_cutoff
+        sample_list,
+        analysis_dict,
+        args.upper_del_cutoff,
+        args.lower_dup_cutoff,
+        single_exon_cnv,
     )
     
-    # Filter single-exon CNVs using statistics
-    filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
-        args.lower_dup_cutoff, analysis_dict
-    )
+    if single_exon_cnv:
+        # Filter single-exon CNVs using statistics
+        filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
+            args.lower_dup_cutoff, analysis_dict
+        )
 
     
     sample_list = unify_raw_calls(sample_list)
@@ -239,6 +266,28 @@ def parse_arguments():
         action="store_true", 
         help="Perform offtarget CNV analysis",
         dest="offtarget"
+    )
+    single_exon_cnv_group = parser.add_mutually_exclusive_group()
+    single_exon_cnv_group.add_argument(
+        "--single_exon_cnv",
+        action="store_true",
+        default=None,
+        help="Force single-exon CNV analysis, overriding the target-count default",
+        dest="single_exon_cnv",
+    )
+    single_exon_cnv_group.add_argument(
+        "--skip_single_exon_cnv",
+        action="store_false",
+        default=None,
+        help="Skip single-exon CNV analysis while keeping segmented CNV analysis enabled",
+        dest="single_exon_cnv",
+    )
+    parser.add_argument(
+        "--single_exon_cnv_target_limit",
+        type=int,
+        default=10000,
+        help="Maximum number of targets for default single-exon CNV analysis",
+        dest="single_exon_cnv_target_limit",
     )
     parser.add_argument(
         "--force",

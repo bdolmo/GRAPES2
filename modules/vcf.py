@@ -8,6 +8,33 @@ import pysam
 from modules.random_forest import load_model, process_vcf
 
 
+def _safe_float(value):
+    """Return a float or None for missing / malformed numeric fields."""
+    if value is None:
+        return None
+
+    value = str(value).strip()
+    if value == "" or value == ".":
+        return None
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value):
+    """Return an int or None for missing / malformed numeric fields."""
+    numeric_value = _safe_float(value)
+    if numeric_value is None:
+        return None
+
+    try:
+        return int(numeric_value)
+    except (TypeError, ValueError):
+        return None
+
+
 def annotate_snv_baf(bam, ref_fasta, chrom, start, end, cnv_type, copy_number) -> float:
     samfile = pysam.AlignmentFile(bam, "rb")
     fastafile = pysam.FastaFile(ref_fasta)  # Load the reference genome
@@ -361,11 +388,13 @@ def bed_to_vcf(
             cn = ""
             for field in info_fields:
                 if field.startswith("CN="):
-                    cn = int(field.replace("CN=", ""))
-                    genotype = define_genotype_based_on_cn(cn)
+                    cn = _safe_int(field.replace("CN=", ""))
+                    if cn is not None:
+                        genotype = define_genotype_based_on_cn(cn)
                 if field.startswith("AF="):
-                    af = float(field.replace("AF=", ""))
-                    genotype = define_genotype_based_on_af(af)
+                    af = _safe_float(field.replace("AF=", ""))
+                    if af is not None:
+                        genotype = define_genotype_based_on_af(af)
 
             snv_list = []
             baf = "."
@@ -426,21 +455,26 @@ def bed_to_vcf(
             for idx,field in enumerate(info_fields):
                 tmp_field = field.split("=")
                 field_name = tmp_field[0]
+                field_value = tmp_field[1] if len(tmp_field) > 1 else None
+                sanitized_field = field.replace(";", "_")
                 
                 if "PRECISE" in field:
                     call_dict["precision"] = field
                 else:
-                    if len(tmp_field) > 1:
-                        field_value = tmp_field[1]
+                    if field_value is not None:
                         call_dict[field_name] = field_value.replace(";", "_")
-                if field_name=="GC":
-                    field_value = tmp_field[1]
-                    if field_value != ".":
-                        if float(field_value) < min_gc:
+
+                if field_name == "GC":
+                    gc_value = _safe_float(field_value)
+                    if gc_value is None and field_value not in (None, "."):
+                        sanitized_field = "GC=."
+                    elif gc_value is not None:
+                        if gc_value < min_gc:
                             filter_by_gc = True
-                        if float(field_value) > max_gc:
+                        if gc_value > max_gc:
                             filter_by_gc = True
-                info_fields[idx] = field.replace(";", "_")
+
+                info_fields[idx] = sanitized_field
 
             if filter_by_gc:
                 continue

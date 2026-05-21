@@ -102,6 +102,7 @@ def initialize(args):
     splitted_bed = args.bed.replace(".bed", ".splitted.bed")
     split_large_exons(args.bed, splitted_bed)
     analysis_dict["bed"] = splitted_bed
+    analysis_dict["target_count"] = count_bed_targets(splitted_bed)
 
     # Iterate through bam list and create sample objects
     sample_list = list()
@@ -123,6 +124,18 @@ def initialize(args):
         sample_list.append(sample)
 
     return sample_list, analysis_dict, ngs_utils_dict, annotation_dict
+
+
+def count_bed_targets(input_bed):
+    """Count non-header target intervals in a BED file."""
+    count = 0
+    with open(input_bed, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("chr\tstart"):
+                continue
+            count += 1
+    return count
 
 
 def split_large_exons(input_bed, output_bed):

@@ -1073,9 +1073,15 @@ def get_single_rois_from_segment(chr, start, end, ratios_bed):
     return rois_list
 
 
-def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold):
+def call_raw_cnvs(
+    sample_list,
+    analysis_dict,
+    upper_del_threshold,
+    dup_threshold,
+    analyze_single_exon_cnv=True,
+):
     """
-    Release a list of raw segmented calls and also single-exon cnvs.
+    Release a list of raw segmented calls and optionally single-exon cnvs.
     Only keep single-exon CNVs that do NOT overlap any multi-exon CNVs from the same sample.
     """
     upper_del_threshold = float(upper_del_threshold)
@@ -1103,10 +1109,14 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
         raw_single_cnv_file = str(Path(sample.sample_folder) / raw_single_cnv_name)
         sample.add("raw_single_exon_calls", raw_single_cnv_file)
 
+        filtered_single_cnv_name = f"{sample.name}.filtered.single.exon.calls.bed"
+        filtered_single_cnv_file = str(Path(sample.sample_folder) / filtered_single_cnv_name)
+        sample.add("filtered_single_exon_calls", filtered_single_cnv_file)
+
         # We will use plain dicts and bedtools stuff, instead of pandas
         o = open(raw_seg_calls_bed, "w")
         p = open(seg_calls_bed, "w")
-        q = open(raw_single_cnv_file, "w")
+        q = open(raw_single_cnv_file, "w") if analyze_single_exon_cnv else None
         ratio_dict = ratio_to_dict(sample.ratio_file)
 
         # Write a no-header version of ratio_file
@@ -1193,6 +1203,12 @@ def call_raw_cnvs(sample_list, analysis_dict, upper_del_threshold, dup_threshold
         
         o.close()
         p.close()
+
+        if not analyze_single_exon_cnv:
+            open(raw_single_cnv_file, "w").close()
+            open(filtered_single_cnv_file, "w").close()
+            logging.info(f" INFO: Skipping single-exon CNVs on sample {sample.name}")
+            continue
 
         # -------------------
         # Single-exon calls
