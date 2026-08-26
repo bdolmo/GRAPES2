@@ -137,7 +137,7 @@ def main(args):
     
     if single_exon_cnv:
         # Filter single-exon CNVs using statistics
-        filter_single_exon_cnv(sample_list, args.upper_del_cutoff, 
+        filter_single_exon_cnv(sample_list, args.upper_del_cutoff,
             args.lower_dup_cutoff, analysis_dict
         )
 
@@ -262,8 +262,8 @@ def parse_arguments():
         dest="breakpoint"
     )
     parser.add_argument(
-        "--offtarget", 
-        action="store_true", 
+        "--offtarget",
+        action="store_true",
         help="Perform offtarget CNV analysis",
         dest="offtarget"
     )

@@ -1,4 +1,6 @@
 *.o
+__pycache__/
+*.pyc
 annotations/mappability
 test_dataset/
 test_lic/
