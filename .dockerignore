@@ -1,0 +1,22 @@
+.git
+.gitignore
+.gitattributes
+docker
+
+# Annotation tracks are large and supplied by the user at runtime via a
+# volume mount, not baked into the image (see docker/dockerfile).
+annotations/mappability
+
+__pycache__
+*.pyc
+*.pyo
+
+venv
+.venv
+*.egg-info
+
+test_dataset
+test_lic
+test_multiple
+test_single_del
+tmp_test

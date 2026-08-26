@@ -2,7 +2,7 @@
 
 GRAPES2 is a read-depth based CNV (Copy Number Variant) and SV (Structural
 Variant / breakpoint) caller designed for targeted NGS sequencing — gene
-panels, exomes, and similar amplicon/hybrid-capture designs. It takes a set
+panels, exomes, and hybrid-capture designs. It takes a set
 of aligned BAM files and a BED file of target regions, and outputs per-sample
 CNV calls (BED/VCF) together with genome-wide log2-ratio plots.
 
@@ -47,7 +47,19 @@ GRAPES2 runs a per-cohort pipeline over all BAM files given as input:
 
 ```bash
 docker build -t grapes2 -f docker/dockerfile .
-docker run --rm -v /path/to/data:/data grapes2 GRAPES2 --help
+```
+
+The image does not bundle the mappability annotation tracks (~460MB
+combined for hg19+hg38) — mount a host directory with them instead. Populate
+that directory once, outside Docker, with `python3 install.py` (see below),
+then mount it read-only on every run:
+
+```bash
+docker run --rm \
+  -v /path/to/mappability:/usr/src/app/GRAPES2/annotations/mappability:ro \
+  -v /path/to/data:/data \
+  grapes2 python grapes2.py --bam_dir /data/bams --bed /data/targets.bed \
+    --output_dir /data/out -f /data/reference.fasta -g hg19
 ```
 
 ### Manual installation

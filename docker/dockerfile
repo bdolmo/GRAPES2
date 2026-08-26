@@ -1,44 +1,46 @@
-# Start from a pinned Python slim image
-# FROM python:3.12.3-slim
+########################################################################
+# Builder: system build toolchain + Python deps, isolated to this stage
+# so none of it ends up in the final image.
+########################################################################
+FROM public.ecr.aws/docker/library/python:3.11-slim-bookworm AS builder
 
-FROM public.ecr.aws/docker/library/python:3.11-slim-bookworm
-# Set the working directory in the container
-WORKDIR /usr/src/app
-
-# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git \
-        build-essential \
-        libatlas-base-dev \
-        libblas-dev \
-        liblapack-dev \
-        gfortran \
-        wget \
-        zlib1g-dev \
+        g++ \
+        zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /usr/src/app/GRAPES2
+COPY requirements.txt .
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+########################################################################
+# Runtime: slim image with only what's needed to execute GRAPES2.
+########################################################################
+FROM public.ecr.aws/docker/library/python:3.11-slim-bookworm
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
         bedtools \
         samtools && \
     rm -rf /var/lib/apt/lists/*
 
-# Clone the repository
-RUN git clone --depth 1 https://github.com/bdolmo/GRAPES2.git
+COPY --from=builder /opt/venv /opt/venv
 
-# Change the working directory to GRAPES2
 WORKDIR /usr/src/app/GRAPES2
+COPY . .
 
-# Upgrade pip and install Python dependencies
-RUN python -m pip install --upgrade pip && \
-    python -m pip install --no-cache-dir -r requirements.txt
+# Mappability annotation tracks (~680MB for hg19+hg38 combined) are not
+# shipped in the image. Supply them at runtime via a volume mount, e.g.:
+#   docker run -v /path/to/mappability:/usr/src/app/GRAPES2/annotations/mappability ...
+# Populate that host directory once with: python3 install.py
+RUN mkdir -p annotations/mappability
 
-# Create the mappability directory and download files
-RUN mkdir -p annotations/mappability && \
-    wget -O annotations/mappability/GRCh38.mappability.100mer.bedGraph.gz \
-        "https://www.dropbox.com/s/3hnvpczq9sbown6/GRCh38.mappability.100mer.bedGraph.gz?dl=1" && \
-    wget -O annotations/mappability/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz \
-        "https://www.dropbox.com/s/hjf0a9ga8je6ndz/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=1"
-
-# Add GRAPES2 to PATH
-ENV PATH="/usr/src/app/GRAPES2:${PATH}"
+ENV PATH="/opt/venv/bin:/usr/src/app/GRAPES2:${PATH}"
 
 # Default command
 CMD ["python", "grapes2.py"]

@@ -43,7 +43,7 @@ def load_annotation_config(genome_version: str):
     if genome_version == "hg38":
         ann_dict = {
             "mappability": os.path.join(
-                ann_dir, "mappability", "wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz"
+                ann_dir, "mappability", "GRCh38.mappability.100mer.bedGraph.gz"
             ),
             "blacklist": os.path.join(
                 ann_dir, "blacklist", "consensusBlacklist.hg38.bed"

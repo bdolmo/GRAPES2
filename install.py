@@ -17,9 +17,16 @@ def download_annotations():
     ann_dir = curr_dir + "/annotations/mappability"
     if not os.path.isdir(ann_dir):
         os.mkdir(ann_dir)
+
     mappability_hg19_name = "wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz"
     mappability_hg19_file = ann_dir + "/" + mappability_hg19_name
-    cmd = "wget https://www.dropbox.com/s/3hnvpczq9sbown6/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=0 -O {}".format(mappability_hg19_file)
+    cmd = "wget https://www.dropbox.com/s/hjf0a9ga8je6ndz/wgEncodeCrgMapabilityAlign100mer.chr.bedgraph.gz?dl=0 -O {}".format(mappability_hg19_file)
+    p1 = subprocess.run(cmd, shell=True, stdout=sys.stdout,
+    stderr=subprocess.PIPE)
+
+    mappability_hg38_name = "GRCh38.mappability.100mer.bedGraph.gz"
+    mappability_hg38_file = ann_dir + "/" + mappability_hg38_name
+    cmd = "wget https://www.dropbox.com/s/3hnvpczq9sbown6/GRCh38.mappability.100mer.bedGraph.gz?dl=0 -O {}".format(mappability_hg38_file)
     p1 = subprocess.run(cmd, shell=True, stdout=sys.stdout,
     stderr=subprocess.PIPE)
 
