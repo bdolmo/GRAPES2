@@ -117,7 +117,13 @@ def process_vcf(input_vcf, sample_correlation, sample_enrichment, output_vcf, mo
             new_info = ";".join(clean_tokens + [f"RF_SCORE={prob_score:.4f}"])
             fields[7] = new_info  # Update INFO field
             if prob_score >= 0.5:
-                fields[6] = "PASS"
+                if fields[6] == ".":
+                    fields[6] = "PASS"
+            else:
+                if fields[6] in (".", "PASS"):
+                    fields[6] = "Low_RF_Score"
+                elif "Low_RF_Score" not in fields[6].split(";"):
+                    fields[6] += ";Low_RF_Score"
             updated_lines.append("\t".join(fields))
 
     # Save modified VCF

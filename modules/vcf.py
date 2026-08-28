@@ -227,7 +227,7 @@ def annotate_ontarget_overlaps(bed, roi_bed):
     os.rename(output_bed, bed)
     
 
-def export_vcf_calls_to_bed(vcf_file, output_bed):
+def export_vcf_calls_to_bed(vcf_file, output_bed, passing_only=False):
     """
     Export VCF records to a BED-like file used by export_all_calls:
     chr, start(POS), end(END), info
@@ -238,6 +238,8 @@ def export_vcf_calls_to_bed(vcf_file, output_bed):
                 continue
             fields = line.rstrip("\n").split("\t")
             if len(fields) < 8:
+                continue
+            if passing_only and fields[6] not in ("PASS", "."):
                 continue
 
             chrom = fields[0]
@@ -299,8 +301,10 @@ def bed_to_vcf(
     # Add the column header
     info_fields = [
         '##FILTER=<ID=Incompatible_BAF,Description="Mean B-Allele Frequency is not compatible with the CNV">',
+        '##FILTER=<ID=Low_RF_Score,Description="Random-forest score is below 0.5">',
         '##INFO=<ID=IMPRECISE,Number=0,Type=Flag,Description="Imprecise structural variation">',
         '##INFO=<ID=PRECISE,Number=0,Type=Flag,Description="Precise structural variation">',
+        '##INFO=<ID=QUALITY_MODEL,Number=1,Type=String,Description="Versioned model used to calculate CNV_QUALITY">',
         '##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">',
         '##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Size of structural variant">',
         '##INFO=<ID=END,Number=1,Type=Integer,Description="End position of structural variant">',
@@ -319,7 +323,16 @@ def bed_to_vcf(
         '##INFO=<ID=PE,Number=1,Type=Integer,Description="Number of paired-end reads supporting the SV">',
         '##INFO=<ID=ZSCORE,Number=1,Type=Float,Description="Z-score of the CNV call">',
         '##INFO=<ID=CV,Number=1,Type=Float,Description="Coefficient of variation of the CNV call">',
-        '##INFO=<ID=CNV_SCORE,Number=1,Type=Float,Description="Phred score of the CNV call">',
+        '##INFO=<ID=HMM_POSTERIOR,Number=1,Type=Float,Description="Posterior probability of the assigned HMM copy-number state">',
+        '##INFO=<ID=SIGNAL_FIT,Number=1,Type=Float,Description="Agreement between observed log2 ratio and assigned copy number, scaled to 0-1">',
+        '##INFO=<ID=DISPERSION_SCORE,Number=1,Type=Float,Description="Dispersion quality component scaled to 0-1">',
+        '##INFO=<ID=SAMPLE_QUALITY,Number=1,Type=Float,Description="Sample-level quality component scaled to 0-1">',
+        '##INFO=<ID=ROI_SUPPORT,Number=1,Type=Float,Description="Target-count support component scaled to 0-1">',
+        '##INFO=<ID=PERBASE_SUPPORT,Number=1,Type=Float,Description="Single-exon per-base support component scaled to 0-1">',
+        '##INFO=<ID=EVENT_STD,Number=1,Type=Float,Description="Standard deviation of target log2 ratios within the event">',
+        '##INFO=<ID=CONTROL_CV,Number=1,Type=Float,Description="Per-base control coverage coefficient of variation for single-exon calls">',
+        '##INFO=<ID=CNV_QUALITY,Number=1,Type=Float,Description="Uncalibrated GRAPES2 CNV quality score scaled to 0-1">',
+        '##INFO=<ID=CNV_SCORE,Number=1,Type=Float,Description="Deprecated alias of CNV_QUALITY retained for compatibility">',
         '##INFO=<ID=MBQ,Number=1,Type=Integer,Description="Mean Base Quality in phred scale">',
         '##INFO=<ID=MBAF,Number=1,Type=Float,Description="Mean B-Allele Frequency for overlapping SNV">',
         '##INFO=<ID=SNV,Number=1,Type=String,Description="Total overlapping SNVs">',
@@ -329,7 +342,7 @@ def bed_to_vcf(
         '##INFO=<ID=SOURCE,Number=1,Type=String,Description="Source program">',
         '##INFO=<ID=ON_TARGET,Number=1,Type=Integer,Description="On-target call(1) or off-target(0)">',
         '##INFO=<ID=AF,Number=1,Type=Float,Description="Variant Allele Frequency">',
-        '##INFO=<ID=RF_SCORE,Number=1,Type=Float,Description="Random Forest probability score">',
+        '##INFO=<ID=RF_SCORE,Number=1,Type=Float,Description="Uncalibrated random-forest class score scaled to 0-1">',
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">'
     ]
     for field in info_fields:
@@ -517,7 +530,11 @@ def bed_to_vcf(
                 os.remove(legacy_rf_vcf)
 
             rf_calls_bed = bed.replace(".bed", ".rf.bed")
-            export_vcf_calls_to_bed(output_vcf, rf_calls_bed)
+            export_vcf_calls_to_bed(
+                output_vcf,
+                rf_calls_bed,
+                passing_only=True,
+            )
             sample.add("calls_bed", rf_calls_bed)
 
     return sample

@@ -362,20 +362,14 @@ class CustomHMM:
         omega[0, :] = np.log(start_p + epsilon) + B[0, :]
 
         prev = np.zeros((T - 1, M))
-        phred_scores = np.zeros((T, M))
-        prob_scores = np.zeros((T, M))
+        transition_scores = np.zeros((T, M))
         for t in range(1, T):
             for j in range(M):
                 probability = omega[t - 1] + np.log(A[:, j] + epsilon) + B[t, j]
                 max_log_prob = np.max(probability)
                 probs = np.exp(probability - max_log_prob)
                 probs /= np.sum(probs)
-                error_probs = 1 - probs
-                Q = -10 * np.log10(error_probs + epsilon)
-                Q_rounded = np.round(Q)
-                Q_capped = np.clip(Q_rounded, 0, 60)
-                phred_scores[t, j] = np.max(Q_capped)
-                prob_scores[t, j] = np.max(probs)
+                transition_scores[t, j] = np.max(probs)
                 prev[t - 1, j] = np.argmax(probability)
                 omega[t, j] = np.max(probability)
                 if np.isinf(omega[t, j]):
@@ -386,7 +380,10 @@ class CustomHMM:
         for t in range(T - 2, -1, -1):
             X[t] = int(prev[t, X[t + 1]])
         result = [str(x) for x in X]
-        return result, prob_scores
+        # These are local predecessor-transition scores, not posterior
+        # probabilities or Phred values. Callers requiring confidence should use
+        # posterior_decoding() for the assigned state.
+        return result, transition_scores
 
     def fit_dispersion(self, max_iter=10, tol=1e-3):
         # new_disp = update_global_dispersion(self._obs_dict, self._sample, self._chr, scale_factor=self._scale_factor)
@@ -431,7 +428,7 @@ if __name__ == "__main__":
     print(msg)
     msg = f" INFO: {posterior}"
     print(msg)
-    state_path, prob_scores = custom_model.decode()
+    state_path, transition_scores = custom_model.decode()
     msg = " INFO: Viterbi state path"
     print(msg)
     msg = f" INFO: {state_path}"

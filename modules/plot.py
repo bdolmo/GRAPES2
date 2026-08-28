@@ -22,6 +22,32 @@ from adjustText import adjust_text
 pd.options.mode.chained_assignment = None  # default='warn'
 
 
+def _genomewide_scatter_style(point_count):
+    """Return a readable marker size and opacity for the target density."""
+    if point_count >= 100000:
+        return 3.0, 0.18
+    if point_count >= 50000:
+        return 4.0, 0.25
+    if point_count >= 10000:
+        return 7.0, 0.40
+    return 14.0, 0.70
+
+
+def _genomewide_y_limits(ratios, del_cutoff, dup_cutoff):
+    """Choose robust limits without allowing rare artifacts to flatten the plot."""
+    finite_ratios = pd.Series(ratios)[np.isfinite(ratios)]
+    if finite_ratios.empty:
+        return -1.5, 1.5
+
+    lower_quantile = finite_ratios.quantile(0.001)
+    upper_quantile = finite_ratios.quantile(0.999)
+    lower_limit = min(-1.5, float(del_cutoff) - 0.4, lower_quantile - 0.15)
+    upper_limit = max(1.5, float(dup_cutoff) + 0.4, upper_quantile + 0.15)
+
+    # Values beyond these bounds are still shown as triangles at the plot edge.
+    return max(-3.5, lower_limit), min(3.5, upper_limit)
+
+
 def plot_normalization(sample_list, analysis_dict):
     """
     Plotting coverage normalization
@@ -315,20 +341,19 @@ class CnvPlot:
 
         sample_ratio = self._sample + "_ratio"
         cnr_df[sample_ratio] = pd.to_numeric(cnr_df[sample_ratio], errors="coerce")
-        finite_ratios = cnr_df[sample_ratio][np.isfinite(cnr_df[sample_ratio])]
-
-        min_limit = -3.5
-        max_limit = 1
-        if not finite_ratios.empty:
-            max_ratio = finite_ratios.max()
-            if max_ratio > max_limit:
-                max_limit = max_ratio + 0.2
-        else:
+        finite_mask = np.isfinite(cnr_df[sample_ratio])
+        finite_ratios = cnr_df.loc[finite_mask, sample_ratio]
+        if finite_ratios.empty:
             msg = (
                 " WARNING: No finite ratio values found for sample %s while "
                 "plotting genomewide profile; using default y-axis limits"
             )
             logging.warning(msg, self._sample)
+        min_limit, max_limit = _genomewide_y_limits(
+            finite_ratios,
+            self._del_cutoff,
+            self._dup_cutoff,
+        )
         
         # Setting chromosome color
         palette_dict = defaultdict(dict)
@@ -341,57 +366,132 @@ class CnvPlot:
                 idx = 0
             palette_dict[chr] = color_list[idx]
             idx += 1
-        x_list = []
-
-        # Setting xtick divisions and labels
-        chromosomes = natsorted(cnr_df["chr"].tolist())
-        i = 0
-        xtick_list = []
-        for chr in chromosomes:
-            if not chr in x_list:
-                x_list.append(chr)
-                xtick_list.append(i)
-            else:
-                x_list.append("")
-            i += 1
+        # Put chromosome labels at their centers and separators at boundaries.
+        chromosome_starts = []
+        chromosome_centers = []
+        for chromosome in unique_chromosomes:
+            chromosome_indices = cnr_df.index[cnr_df["chr"] == chromosome]
+            chromosome_starts.append(int(chromosome_indices[0]))
+            chromosome_centers.append(
+                (int(chromosome_indices[0]) + int(chromosome_indices[-1])) / 2
+            )
 
         if genomewide == True:
-            # if not os.path.isfile(plot):
-            sns.set(rc={"figure.dpi": 180, "savefig.dpi": 180})
             sns.set_style("ticks")
-            fig, axes = plt.subplots(figsize=(20, 7))
-            fig.suptitle(self._sample, fontsize=20)
+            fig, ratio_plot = plt.subplots(figsize=(20, 7), dpi=180)
+            ratio_plot.set_title(self._sample, fontsize=20, pad=16)
 
-            ratio_plot = sns.scatterplot(
-                data=cnr_df,
-                x=cnr_df.index,
-                y=cnr_df[sample_ratio],
-                size=0.1,
-                hue=cnr_df.chr,
-                palette=palette_dict,
-                edgecolor="none",
+            finite_x = cnr_df.index.to_numpy()[finite_mask]
+            finite_y = finite_ratios.to_numpy()
+            finite_colors = (
+                cnr_df.loc[finite_mask, "chr"].map(palette_dict).to_numpy()
             )
+            marker_size, marker_alpha = _genomewide_scatter_style(len(finite_y))
+            lower_outliers = finite_y < min_limit
+            upper_outliers = finite_y > max_limit
+            visible_points = ~(lower_outliers | upper_outliers)
+
+            ratio_plot.scatter(
+                finite_x[visible_points],
+                finite_y[visible_points],
+                c=finite_colors[visible_points],
+                s=marker_size,
+                alpha=marker_alpha,
+                edgecolors="none",
+                linewidths=0,
+                rasterized=True,
+            )
+
+            clipped_marker_size = max(8.0, marker_size * 1.8)
+            if upper_outliers.any():
+                ratio_plot.scatter(
+                    finite_x[upper_outliers],
+                    np.full(upper_outliers.sum(), max_limit - 0.03),
+                    c=finite_colors[upper_outliers],
+                    marker="^",
+                    s=clipped_marker_size,
+                    alpha=max(0.55, marker_alpha),
+                    edgecolors="none",
+                    linewidths=0,
+                    rasterized=True,
+                )
+            if lower_outliers.any():
+                ratio_plot.scatter(
+                    finite_x[lower_outliers],
+                    np.full(lower_outliers.sum(), min_limit + 0.03),
+                    c=finite_colors[lower_outliers],
+                    marker="v",
+                    s=clipped_marker_size,
+                    alpha=max(0.55, marker_alpha),
+                    edgecolors="none",
+                    linewidths=0,
+                    rasterized=True,
+                )
 
             # Setting y limits
             ratio_plot.set(ylim=(min_limit, max_limit))
-            ratio_plot.set_xticks(xtick_list)
-            ratio_plot.set_xticklabels(unique_chromosomes, rotation=40, size=15)
-            ratio_plot.set_yticks(ratio_plot.get_yticks())
-            ratio_plot.set_yticklabels(ratio_plot.get_yticks(), size=15)
-            legend = ratio_plot.get_legend()
-            if legend is not None:
-                legend.remove()
+            ratio_plot.set_xlim(-0.5, max(len(cnr_df) - 0.5, 0.5))
+            ratio_plot.set_xticks(chromosome_centers)
+            ratio_plot.set_xticklabels(
+                unique_chromosomes,
+                rotation=45,
+                rotation_mode="anchor",
+                ha="right",
+                size=12,
+            )
+            ratio_plot.tick_params(axis="y", labelsize=15)
+            ratio_plot.yaxis.set_major_locator(ticker.MaxNLocator(nbins=8))
+            ratio_plot.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f"))
             ratio_plot.set_xlabel("", fontsize=20)
             ratio_plot.set_ylabel("log2 Ratio", fontsize=20)
-            ratio_plot.axhline(self._dup_cutoff, ls="--", color="blue")
-            ratio_plot.axhline(self._del_cutoff, ls="--", color="red")
+            ratio_plot.axhline(0, color="#687078", lw=0.7, alpha=0.55, zorder=0)
+            ratio_plot.axhline(
+                self._dup_cutoff,
+                ls="--",
+                color="#1769e0",
+                lw=1.1,
+                alpha=0.9,
+            )
+            ratio_plot.axhline(
+                self._del_cutoff,
+                ls="--",
+                color="#d62728",
+                lw=1.1,
+                alpha=0.9,
+            )
+            ratio_plot.grid(axis="y", color="#d7dce0", lw=0.6, alpha=0.55)
+            ratio_plot.grid(axis="x", visible=False)
 
             # Adding vertical lines to separate chromosomes
-            for xc in xtick_list:
-                ratio_plot.axvline(x=xc, color="black")
+            for chromosome_start in chromosome_starts[1:]:
+                ratio_plot.axvline(
+                    x=chromosome_start - 0.5,
+                    color="#525b63",
+                    lw=0.6,
+                    alpha=0.45,
+                    zorder=0,
+                )
+
+            clipped_count = int(lower_outliers.sum() + upper_outliers.sum())
+            if clipped_count:
+                ratio_plot.text(
+                    0.995,
+                    0.985,
+                    (
+                        f"Triangles: {int(upper_outliers.sum())} above / "
+                        f"{int(lower_outliers.sum())} below display range"
+                    ),
+                    transform=ratio_plot.transAxes,
+                    ha="right",
+                    va="top",
+                    fontsize=9,
+                    color="#4d545a",
+                )
+
             # Saving as png
-            ratio_plot.figure.savefig(plot)
-            plt.close()
+            fig.tight_layout()
+            fig.savefig(plot, dpi=180, bbox_inches="tight", facecolor="white")
+            plt.close(fig)
 
             sample.analysis_json["genome_wide"] = cnr_df.to_json()
 

@@ -105,15 +105,19 @@ to build each other's reference baseline unless `--use_baseline_db` /
 | `--offtarget` | Also extract and analyze off-target coverage |
 | `--breakpoint` | Perform SV breakpoint (split-read) analysis |
 | `--single_exon_cnv` / `--skip_single_exon_cnv` | Force single-exon CNV reanalysis on/off. By default it's enabled for BED files with up to `--single_exon_cnv_target_limit` targets (10,000) after splitting, and skipped above that (e.g. exome BEDs) — see [Options](#options) below |
+| `--min_reference_correlation` | Minimum raw Spearman correlation for reference selection (default: `0.85`) |
+| `--min_reference_samples` / `--max_reference_samples` | Required and maximum selected references per sample (default: `3` / `10`) |
 | `--use_baseline_db` / `--baseline_db` | Use a persistent SQLite baseline database instead of an in-cohort reference |
 | `--upper_del_cutoff` | log2 ratio cutoff to call a deletion (default: `-0.6`) |
 | `--lower_dup_cutoff` | log2 ratio cutoff to call a duplication (default: `0.4`) |
 | `--min_zscore` | Minimum z-score to keep a call (default: `2.58`) |
+| `--min_cnv_quality` | Minimum final uncalibrated CNV quality to report (default: `0.5`) |
 | `--min_size` | Minimum reported CNV/SV size, in target count (default: `10`) |
 | `--min_gc` / `--max_gc` | GC-content bounds for filtering targets (default: `20` / `80`) |
 | `--min_mappability` | Minimum mappability for filtering targets (default: `30`) |
 | `--plot_gene GENE1,GENE2` | Plot per-exon log2 ratios for the given gene(s) |
 | `--force` | Force re-computation, ignoring cached intermediate files |
+| `--keep_intermediate_files` | Keep large coverage/count/normalization intermediates; they are removed after a successful run by default |
 
 Run `python3 grapes2.py --help` for the full, up-to-date list of options.
 
@@ -130,6 +134,30 @@ For each sample `<sample>`, GRAPES2 writes to `<output_dir>/<sample>/`:
 
 At the cohort level, `<output_dir>/<output_dir_name>.all.calls.bed`
 aggregates all samples' calls into a single file.
+
+### CNV quality fields
+
+`CNV_QUALITY` is the canonical GRAPES2 call-quality value. It is an
+uncalibrated heuristic score in the range 0–1, not a posterior probability or
+a Phred score. `CNV_SCORE` is emitted with the same value as a deprecated alias
+for compatibility with existing consumers. Calls are filtered using
+`--min_cnv_quality` (default `0.5`), and `QUALITY_MODEL` identifies the scoring
+schema (`GRAPES2_HEURISTIC_V2`).
+
+The final BED and VCF INFO fields expose the components used to calculate it:
+`HMM_POSTERIOR`, `SIGNAL_FIT`, `DISPERSION_SCORE`, `SAMPLE_QUALITY`,
+`ROI_SUPPORT`, and (for single-exon calls) `PERBASE_SUPPORT`. Raw supporting
+dispersion values are reported separately as `EVENT_STD` and `CONTROL_CV`.
+When random-forest scoring is enabled, `RF_SCORE` remains a separate,
+uncalibrated model score and is not combined numerically with `CNV_QUALITY`.
+The VCF retains low-RF records with `FILTER=Low_RF_Score`; passing BED and
+cohort outputs exclude records carrying an explicit VCF filter.
+
+After those final outputs have been written successfully, GRAPES2 removes
+reproducible intermediate coverage, count, normalization, ratio, and temporary
+BED files by default. Pass `--keep_intermediate_files` when they are needed for
+debugging or inspection. Intermediates are retained automatically when a run
+fails before final output generation.
 
 ## Repository layout
 

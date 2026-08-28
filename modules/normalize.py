@@ -22,6 +22,13 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.utils.extmath import randomized_svd
 from statsmodels.nonparametric.smoothers_lowess import lowess
 from .baseline_db import calculate_bed_md5, import_baselines_to_df
+from .utils import (
+    atomic_output_path,
+    atomic_write_dataframe,
+    stage_manifest_matches,
+    update_stage_manifest,
+    validate_delimited_file,
+)
 import statsmodels.api as sm
 # from modules.loopca import simulate_artificial_cnvs, loo_pca, find_optimal_pc_removal
 
@@ -98,12 +105,10 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
 
     analysis_dict["bed_md5"] = calculate_bed_md5(analysis_dict["bed"])
 
+    raw_depth_df = pd.read_csv(analysis_dict["unified_raw_depth"], sep="\t")
     for sample in sample_list:
-        # Load a dataframe of raw coverage data
-        df = pd.read_csv(analysis_dict["unified_raw_depth"], sep="\t")
-
         # Calculate median coverage
-        median_depth = round(df[sample.name].median(), 6)
+        median_depth = round(raw_depth_df[sample.name].median(), 6)
         sample.add("median_depth", median_depth)
 
     # Normalize exon-level coverage by GC-content
@@ -112,63 +117,138 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
     analysis_dict["normalized_depth"] = normalized_depth
 
     norm_factors = ["gc"]
-    if not os.path.isfile(normalized_depth):       
+    normalized_required_columns = [
+        "chr",
+        "start",
+        "end",
+        "exon",
+        "gc",
+        "map",
+    ] + [f"{sample.name}_normalized_final" for sample in sample_list]
+    normalization_inputs = [
+        path
+        for path in [
+            analysis_dict.get("unified_raw_depth"),
+            analysis_dict.get("per_base_coverage"),
+            analysis_dict.get("bed"),
+            analysis_dict.get("offtarget_raw_counts"),
+            analysis_dict.get("baseline_db"),
+        ]
+        if path and os.path.isfile(path)
+    ]
+    normalization_metadata = {
+        "offtarget": bool(analysis_dict.get("offtarget", False)),
+        "per_base_normalization": bool(
+            analysis_dict.get("single_exon_cnv", True)
+        ),
+        "samples": [sample.name for sample in sample_list],
+        "use_baseline_db": bool(analysis_dict.get("use_baseline_db", False)),
+    }
+    normalization_current = stage_manifest_matches(
+        analysis_dict["output_dir"],
+        "normalization",
+        [normalized_depth],
+        input_paths=normalization_inputs,
+        metadata=normalization_metadata,
+    )
+    normalized_depth_valid = (
+        normalization_current
+        and not analysis_dict.get("force", False)
+        and validate_delimited_file(
+            normalized_depth,
+            required_columns=normalized_required_columns,
+            min_columns=len(normalized_required_columns),
+        )
+    )
+    if not normalized_depth_valid:
         # normalize ontarget exon-level normalized depth
         df = normalize_exon_level(analysis_dict["unified_raw_depth"], sample_list, norm_factors)
-
-        # Export ontarget exon-level normalized depth
-        df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
     else:
         df = pd.read_csv(analysis_dict["normalized_depth"], sep="\t")
 
     if analysis_dict["use_baseline_db"]:
         df = import_baselines_to_df(analysis_dict, df)
 
-    df.to_csv(normalized_depth, sep="\t", mode="w", index=None)
+    if not normalized_depth_valid:
+        atomic_write_dataframe(df, normalized_depth, sep="\t", index=False)
+    if not validate_delimited_file(
+        normalized_depth,
+        required_columns=normalized_required_columns,
+        min_columns=len(normalized_required_columns),
+    ):
+        raise RuntimeError(f"Normalized depth output failed validation: {normalized_depth}")
 
     normalized_offtarget_name = f"{analysis_dict['output_name']}.normalized.offtarget.bed"
     normalized_offtarget = str(Path(analysis_dict["output_dir"]) / normalized_offtarget_name)
-    analysis_dict["normalized_offtarget"] = normalized_depth
+    analysis_dict["normalized_offtarget"] = normalized_offtarget
 
     if analysis_dict["offtarget"]:
-
-        if not os.path.isfile(normalized_offtarget):
+        normalized_offtarget_current = stage_manifest_matches(
+            analysis_dict["output_dir"],
+            "normalization",
+            [normalized_offtarget],
+            input_paths=normalization_inputs,
+            metadata=normalization_metadata,
+        )
+        if not (
+            normalized_offtarget_current
+            and not analysis_dict.get("force", False)
+            and validate_delimited_file(
+                normalized_offtarget,
+                required_columns=normalized_required_columns,
+                min_columns=len(normalized_required_columns),
+            )
+        ):
             # normalize off-target normalized depth
-            df = normalize_exon_level(analysis_dict["offtarget_raw_counts"], sample_list, norm_factors)
+            offtarget_df = normalize_exon_level(
+                analysis_dict["offtarget_raw_counts"], sample_list, norm_factors
+            )
 
             # Export offtarget normalized depth
-            df.to_csv(normalized_offtarget, sep="\t", mode="w", index=None)
+            atomic_write_dataframe(
+                offtarget_df,
+                normalized_offtarget,
+                sep="\t",
+                index=False,
+            )
     
-    if os.path.isfile(normalized_depth) and os.path.isfile(normalized_offtarget):
-
-        # Load the two BED files into pandas DataFrames
-        bed1 = pd.read_csv(normalized_depth, sep="\t" )
-        bed2 = pd.read_csv(normalized_offtarget, sep="\t")
-
-        # Get column names from the first DataFrame
-        col_names = bed1.columns.tolist()
-
-        # Concatenate the DataFrames
-        combined = pd.concat([bed1, bed2])
-        # Reset index to ensure no duplicate indices
-        combined.reset_index(drop=True, inplace=True)
-
-        # Set column names for the combined DataFrame
-        combined.columns = col_names
- 
-        # # Use natsorted to get indices that would sort by chromosome in a natural way, and sort start position within each chromosome
-        combined['chr'] = combined['chr'].astype(str)
-        combined['start'] = combined['start'].astype(int)
-
-        combined = combined.reindex(index=order_by_index(combined.index, index_natsorted(combined['chr'])))
-        combined = combined.sort_values(['chr', 'start'])
-
-        # Write the sorted DataFrame to a new BED file
+    normalized_all = None
+    if analysis_dict["offtarget"]:
         normalized_all_name = f"{analysis_dict['output_name']}.normalized.all.bed"
         normalized_all = str(Path(analysis_dict["output_dir"]) / normalized_all_name)
         analysis_dict["normalized_all"] = normalized_all
-
-        combined.to_csv(normalized_all, sep="\t", header=True, index=False)
+        normalized_all_current = stage_manifest_matches(
+            analysis_dict["output_dir"],
+            "normalization",
+            [normalized_all],
+            input_paths=normalization_inputs,
+            metadata=normalization_metadata,
+        )
+        if not (
+            normalized_all_current
+            and not analysis_dict.get("force", False)
+            and validate_delimited_file(
+                normalized_all,
+                required_columns=normalized_required_columns,
+                min_columns=len(normalized_required_columns),
+            )
+        ):
+            bed1 = pd.read_csv(normalized_depth, sep="\t")
+            bed2 = pd.read_csv(normalized_offtarget, sep="\t")
+            col_names = bed1.columns.tolist()
+            combined = pd.concat([bed1, bed2])
+            combined.reset_index(drop=True, inplace=True)
+            combined.columns = col_names
+            combined["chr"] = combined["chr"].astype(str)
+            combined["start"] = combined["start"].astype(int)
+            combined = combined.reindex(
+                index=order_by_index(
+                    combined.index,
+                    index_natsorted(combined["chr"]),
+                )
+            )
+            combined = combined.sort_values(["chr", "start"])
+            atomic_write_dataframe(combined, normalized_all, sep="\t", index=False)
 
 
     normalized_per_base_name = f"{analysis_dict['output_name']}.normalized.per.base.bed"
@@ -177,14 +257,57 @@ def launch_normalization(sample_list, analysis_dict, ann_dict):
     )
     normalized_per_base_pca_file = normalized_per_base_file.replace(".bed", ".pca.bed")
 
-    analysis_dict["normalized_per_base"] = normalized_per_base_file
-    analysis_dict["normalized_per_base_pca"] = normalized_per_base_pca_file
-
-
-    if not os.path.isfile(normalized_per_base_file):
-        sample_list, analysis_dict = normalize_per_base(
-            sample_list, analysis_dict, norm_factors
+    needs_per_base_coverage = bool(analysis_dict.get("single_exon_cnv", True))
+    if needs_per_base_coverage:
+        analysis_dict["normalized_per_base"] = normalized_per_base_file
+        analysis_dict["normalized_per_base_pca"] = normalized_per_base_pca_file
+        normalized_per_base_current = stage_manifest_matches(
+            analysis_dict["output_dir"],
+            "normalization",
+            [normalized_per_base_file],
+            input_paths=normalization_inputs,
+            metadata=normalization_metadata,
         )
+        per_base_required_columns = [
+            "chr",
+            "start",
+            "end",
+            "exon",
+            "gc",
+            "map",
+        ] + [sample.name for sample in sample_list]
+        if not (
+            normalized_per_base_current
+            and not analysis_dict.get("force", False)
+            and validate_delimited_file(
+                normalized_per_base_file,
+                required_columns=per_base_required_columns,
+                min_columns=len(per_base_required_columns),
+            )
+        ):
+            sample_list, analysis_dict = normalize_per_base(
+                sample_list, analysis_dict, norm_factors
+            )
+    else:
+        analysis_dict["normalized_per_base"] = None
+        analysis_dict["normalized_per_base_pca"] = None
+        logging.info(
+            " INFO: Skipping per-base normalization because single-exon CNV "
+            "analysis is not enabled"
+        )
+
+    stage_outputs = [normalized_depth]
+    if normalized_all is not None:
+        stage_outputs.append(normalized_all)
+    if needs_per_base_coverage:
+        stage_outputs.append(normalized_per_base_file)
+    update_stage_manifest(
+        analysis_dict["output_dir"],
+        "normalization",
+        stage_outputs,
+        metadata=normalization_metadata,
+        input_paths=normalization_inputs,
+    )
 
     return sample_list, analysis_dict
 
@@ -208,43 +331,51 @@ def normalize_per_base(sample_list, analysis_dict, fields):
         if sample.mean_coverage_X == 0:
             sample_stats[sample.name]["MEAN_COVERAGEX"] = 0.01
 
+    if not analysis_dict.get("per_base_coverage"):
+        raise RuntimeError("Per-base normalization requested without coverage input")
+
     sample_idx = {}
-    o = open(normalized_per_base_file, "w")
-    with open(analysis_dict["per_base_coverage"]) as f:
-        for line in f:
-            line = line.rstrip("\n")
-            tmp = line.split("\t")
-            chromosome = tmp[0]
-            if line.startswith("#chr\tstart") or line.startswith("chr\tstart"):
-                o.write(line + "\n")
-                for i in range(6, len(tmp)):
-                    sample_name = tmp[i]
-                    sample_idx[i] = sample_name
-            else:
-                gc = int(float(tmp[4]))
-                norm_list = []
-                for i in range(6, len(tmp)):
-                    sample_name = sample_idx[i]
-                    raw_coverage = int(tmp[i])
-                    if "X" in chromosome:
-                        normalized_lib = str(
-                            round(
-                                raw_coverage
-                                / sample_stats[sample_name]["MEAN_COVERAGEX"],
-                                3,
-                            )
-                        )
+    with atomic_output_path(normalized_per_base_file) as temporary_path:
+        with open(temporary_path, "w", encoding="utf-8") as output_handle:
+            with open(
+                analysis_dict["per_base_coverage"], "r", encoding="utf-8"
+            ) as input_handle:
+                for line in input_handle:
+                    line = line.rstrip("\n")
+                    tmp = line.split("\t")
+                    chromosome = tmp[0]
+                    if line.startswith("#chr\tstart") or line.startswith("chr\tstart"):
+                        output_handle.write(line + "\n")
+                        for i in range(6, len(tmp)):
+                            sample_idx[i] = tmp[i]
                     else:
-                        normalized_lib = str(
-                            round(
-                                raw_coverage
-                                / sample_stats[sample_name]["MEAN_COVERAGE"],
-                                3,
-                            )
+                        norm_list = []
+                        for i in range(6, len(tmp)):
+                            sample_name = sample_idx[i]
+                            raw_coverage = int(tmp[i])
+                            if "X" in chromosome:
+                                divisor = sample_stats[sample_name]["MEAN_COVERAGEX"]
+                            else:
+                                divisor = sample_stats[sample_name]["MEAN_COVERAGE"]
+                            norm_list.append(str(round(raw_coverage / divisor, 3)))
+                        output_handle.write(
+                            "\t".join(tmp[0:6]) + "\t" + "\t".join(norm_list) + "\n"
                         )
-                    norm_list.append(normalized_lib)
-                o.write("\t".join(tmp[0:6]) + "\t" + "\t".join(norm_list) + "\n")
-    o.close()
+
+        required_columns = [
+            "chr",
+            "start",
+            "end",
+            "exon",
+            "gc",
+            "map",
+        ] + [sample.name for sample in sample_list]
+        if not validate_delimited_file(
+            temporary_path,
+            required_columns=required_columns,
+            min_columns=len(required_columns),
+        ):
+            raise RuntimeError("Normalized per-base output failed validation")
 
     return sample_list, analysis_dict
 

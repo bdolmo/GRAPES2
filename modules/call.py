@@ -12,7 +12,13 @@ import pandas as pd
 import numpy as np
 import pybedtools
 import math
-from modules.utils import remove_bed_header, signal_to_noise
+from modules.utils import (
+    atomic_output_path,
+    remove_bed_header,
+    signal_to_noise,
+    update_stage_manifest,
+    validate_delimited_file,
+)
 from modules.plot import plot_single_exon_cnv, plot_gene
 from scipy.spatial import distance
 from scipy.stats import nbinom, poisson, norm
@@ -23,7 +29,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def compute_zscore_and_cv(log2_ratio, sample):
+def compute_zscore(log2_ratio, sample):
     sample_mean = getattr(sample, "mean_log2_ratio", np.nan)
     sample_std = getattr(sample, "std_log2_ratio", np.nan)
 
@@ -37,34 +43,29 @@ def compute_zscore_and_cv(log2_ratio, sample):
     else:
         zscore = np.nan
 
-    denom = log2_ratio + 0.01
-    if (
-        not np.isfinite(sample_std)
-        or sample_std <= 0
-        or not np.isfinite(denom)
-        or abs(denom) < 1e-8
-    ):
-        cv = np.nan
-    else:
-        cv = sample_std / denom
-
-    return zscore, cv
+    return zscore
 
 
 def export_all_calls(sample_list, analysis_dict):
-    min_cnv_score = 0.5
+    min_cnv_quality = float(analysis_dict.get("min_cnv_quality", 0.5))
     all_calls_name = f'{analysis_dict["output_name"]}.all.calls.bed'
     all_calls_bed = str(Path(analysis_dict["output_dir"]) / all_calls_name)
     sample_calls = defaultdict(list)
 
-    def _get_cnv_score_from_info(info_field):
+    def _get_cnv_quality_from_info(info_field):
+        fallback_score = None
         for token in info_field.split(";"):
-            if token.startswith("CNV_SCORE="):
+            if token.startswith("CNV_QUALITY="):
                 try:
                     return float(token.split("=", 1)[1])
                 except ValueError:
                     return None
-        return None
+            if token.startswith("CNV_SCORE="):
+                try:
+                    fallback_score = float(token.split("=", 1)[1])
+                except ValueError:
+                    fallback_score = None
+        return fallback_score
 
     def _parse_info_field(info_field):
         info_dict = {}
@@ -81,35 +82,50 @@ def export_all_calls(sample_list, analysis_dict):
         except (TypeError, ValueError):
             return str(value)
 
-    with open(all_calls_bed, "w") as o:
-        o.write("sample\tchr\tstart\tend\tinfo\n")
-        for sample in sample_list:
-            if sample.analyzable == "False":
-                continue
-            with open(sample.calls_bed) as f:
-                for line in f:
-                    line = line.rstrip("\n")
-                    if line.startswith("chr\tstart"):
-                        continue
-                    tmp = line.split("\t")
-                    if len(tmp) < 4:
-                        continue
-                    cnv_score = _get_cnv_score_from_info(tmp[3])
-                    if cnv_score is None or cnv_score < min_cnv_score:
-                        continue
-                    o.write(sample.name + "\t" + line + "\n")
-                    info_dict = _parse_info_field(tmp[3])
-                    sample_calls[sample.name].append({
-                        "chr": tmp[0],
-                        "start": tmp[1],
-                        "end": tmp[2],
-                        "svtype": info_dict.get("SVTYPE", "NA"),
-                        "cn": info_dict.get("CN", "NA"),
-                        "log2ratio": info_dict.get("LOG2RATIO", "NA"),
-                        "cnv_score": cnv_score,
-                    })
+    with atomic_output_path(all_calls_bed) as temporary_calls_bed:
+        with open(temporary_calls_bed, "w", encoding="utf-8") as o:
+            o.write("sample\tchr\tstart\tend\tinfo\n")
+            for sample in sample_list:
+                if sample.analyzable == "False":
+                    continue
+                with open(sample.calls_bed) as f:
+                    for line in f:
+                        line = line.rstrip("\n")
+                        if line.startswith("chr\tstart"):
+                            continue
+                        tmp = line.split("\t")
+                        if len(tmp) < 4:
+                            continue
+                        cnv_quality = _get_cnv_quality_from_info(tmp[3])
+                        if cnv_quality is None or cnv_quality < min_cnv_quality:
+                            continue
+                        o.write(sample.name + "\t" + line + "\n")
+                        info_dict = _parse_info_field(tmp[3])
+                        sample_calls[sample.name].append({
+                            "chr": tmp[0],
+                            "start": tmp[1],
+                            "end": tmp[2],
+                            "svtype": info_dict.get("SVTYPE", "NA"),
+                            "cn": info_dict.get("CN", "NA"),
+                            "log2ratio": info_dict.get("LOG2RATIO", "NA"),
+                            "cnv_quality": cnv_quality,
+                        })
 
-    msg = f" INFO: Final call summary (CNV_SCORE >= {min_cnv_score:.1f})"
+        if not validate_delimited_file(
+            temporary_calls_bed,
+            required_columns=["sample", "chr", "start", "end", "info"],
+            min_columns=5,
+            min_data_rows=0,
+        ):
+            raise RuntimeError("Final cohort call table failed validation")
+
+    update_stage_manifest(
+        analysis_dict["output_dir"],
+        "final_cohort_calls",
+        [all_calls_bed],
+    )
+
+    msg = f" INFO: Final call summary (CNV_QUALITY >= {min_cnv_quality:.1f})"
     print(msg)
     total_calls = 0
     for sample in sample_list:
@@ -128,66 +144,14 @@ def export_all_calls(sample_list, analysis_dict):
                 f"SVTYPE={call['svtype']} "
                 f"CN={call['cn']} "
                 f"LOG2RATIO={_format_value(call['log2ratio'])} "
-                f"CNV_SCORE={call['cnv_score']:.4f}"
+                f"CNV_QUALITY={call['cnv_quality']:.4f}"
             )
             print(msg)
     if total_calls == 0:
-        msg = " INFO: No calls passed the CNV_SCORE threshold"
+        msg = " INFO: No calls passed the CNV_QUALITY threshold"
         print(msg)
     msg = f" INFO: Total calls\t{total_calls}"
     print(msg)
-
-
-def logarithmic_cv_score(coeff_variation, lower=0.05, upper=0.2, low_score=1.0, high_score=0):
-    """
-    Compute a CV score using logarithmic interpolation between low_score and high_score.
-    
-    Parameters:
-      coeff_variation: the coefficient of variation (a positive number).
-      lower: CV value corresponding to low_score (default 0.05).
-      upper: CV value corresponding to high_score (default 0.2).
-      low_score: score when CV is at or below lower (default 1.0, high quality).
-      high_score: score when CV is at or above upper (default 0, low quality).
-      
-    Returns:
-      A score (float) that decreases as CV increases, using a log-scale interpolation.
-    """
-    if coeff_variation <= lower:
-        return low_score
-    elif coeff_variation >= upper:
-        return high_score
-    else:
-        # Compute the logarithms of the bounds and the observed CV.
-        log_lower = np.log(lower)
-        log_upper = np.log(upper)
-        log_cv = np.log(coeff_variation)
-        # Compute the fraction (0 when coeff_variation == lower, 1 when coeff_variation == upper)
-        fraction = (log_cv - log_lower) / (log_upper - log_lower)
-        # Linear interpolation between low_score and high_score in score-space:
-        return low_score + fraction * (high_score - low_score)
-
-
-def _single_exon_dispersion_penalty(sample_std, coeff_variation):
-    """
-    Extra penalty for highly dispersed single-exon calls.
-    Values near/below the start thresholds keep penalty close to 1.0.
-    Higher dispersion is down-weighted exponentially.
-    """
-    # Slightly stronger than the previous version.
-    std_penalty = np.exp(-9.0 * max(0.0, sample_std - 0.10))
-    cv_penalty = np.exp(-12.0 * max(0.0, coeff_variation - 0.10))
-    # Use geometric mean to avoid over-penalizing when only one metric is mildly noisy.
-    combined_penalty = np.sqrt(std_penalty * cv_penalty)
-    return max(min(combined_penalty, 1.0), 0.18)
-
-
-def _multiple_exon_cv_penalty(coeff_variation):
-    """
-    Additional CV penalty for multi-exon calls.
-    This is milder than single-exon, but still down-weights noisy events.
-    """
-    cv_penalty = np.exp(-5.0 * max(0.0, coeff_variation - 0.12))
-    return max(cv_penalty, 0.20)
 
 
 def _clamp01(value):
@@ -209,40 +173,71 @@ def _scaled_noise(value, low, high):
     return _clamp01((v - low) / (high - low))
 
 
-def compute_sample_noise(sample_std, pct_calls, mean_corr):
-    """
-    Build a sample-level noise index from global metrics.
-    Returns a value in [0,1], where higher means noisier sample.
-    """
-    std_noise = _scaled_noise(sample_std, 0.10, 0.35)
-    pct_calls_noise = _scaled_noise(pct_calls, 0.8, 6.0)
+def _low_is_good_quality(value, good, poor, default=0.5):
+    """Scale a non-negative dispersion metric to quality in [0, 1]."""
     try:
-        corr_val = float(mean_corr)
+        metric = float(value)
     except (TypeError, ValueError):
-        corr_val = 0.95
-    if not np.isfinite(corr_val):
-        corr_val = 0.95
-    corr_deficit = max(0.0, 1.0 - corr_val)
-    corr_noise = _scaled_noise(corr_deficit, 0.01, 0.08)
-    return _clamp01(0.45 * std_noise + 0.25 * pct_calls_noise + 0.30 * corr_noise)
+        return default
+    if not np.isfinite(metric) or metric < 0:
+        return default
+    return 1.0 - _scaled_noise(metric, good, poor)
 
 
-def _sample_noise_penalty(sample_noise, n_rois):
-    """
-    Convert sample-level noise to multiplicative score penalty.
-    Penalize single-exon calls more strongly than multi-exon calls.
-    """
+def _reference_quality(raw_correlation):
+    """Scale raw Spearman correlation to a bounded reference-quality value."""
     try:
-        noise = float(sample_noise)
+        correlation = float(raw_correlation)
     except (TypeError, ValueError):
-        noise = 0.5
-    if not np.isfinite(noise):
-        noise = 0.5
-    noise = _clamp01(noise)
-    is_single_exon = int(n_rois) == 1
-    k = 2.2 if is_single_exon else 1.3
-    floor = 0.18 if is_single_exon else 0.30
-    return max(min(np.exp(-k * noise), 1.0), floor)
+        return 0.5
+    if not np.isfinite(correlation):
+        return 0.5
+    return _clamp01((correlation - 0.80) / (0.98 - 0.80))
+
+
+def compute_sample_quality(log2_mad, pct_calls, raw_correlation):
+    """Combine sample-level evidence once into an uncalibrated [0, 1] score."""
+    dispersion_quality = _low_is_good_quality(log2_mad, 0.10, 0.35)
+    call_burden_quality = _low_is_good_quality(pct_calls, 0.8, 6.0)
+    reference_quality = _reference_quality(raw_correlation)
+    return _clamp01(
+        0.45 * dispersion_quality
+        + 0.25 * call_burden_quality
+        + 0.30 * reference_quality
+    )
+
+
+def _signal_fit_score(log2ratio, copy_number, tolerance):
+    """Score agreement between observed log2 ratio and assigned copy number."""
+    try:
+        observed = float(log2ratio)
+        copy_number = float(copy_number)
+    except (TypeError, ValueError):
+        return 0.0
+    if not np.isfinite(observed) or not np.isfinite(copy_number):
+        return 0.0
+    expected = -2.5 if copy_number <= 0 else math.log2(copy_number / 2.0)
+    difference = abs(observed - expected)
+    return 1.0 / (1.0 + (difference / tolerance) ** 2)
+
+
+def _posterior_quality(posterior):
+    try:
+        value = float(posterior)
+    except (TypeError, ValueError):
+        return 0.5
+    if not np.isfinite(value):
+        return 0.5
+    return _clamp01(value)
+
+
+def _roi_support_score(n_rois):
+    """Smoothly reward multi-target support without forcing a perfect score."""
+    try:
+        count = max(int(n_rois), 1)
+    except (TypeError, ValueError):
+        count = 1
+    return _clamp01(1.0 - np.exp(-count / 3.0))
 
 
 def _kl_resolution_score(kl_divergence):
@@ -287,117 +282,86 @@ def score_single_exon(
     pctCalls,
     corr,
     log2ratio,
-    coeff_variation,
+    control_cv,
     cn,
     nRois,
     kl_divergence=None,
     per_base_log2_snr=None,
-    sample_noise=0.0,
+    per_base_state_prob=None,
+    return_components=False,
 ):
-    """
-    Compute a CNV score for a single-exon call based on multiple evidence,
-    converting the observed log2 ratio to a linear ratio.
-    
-    Parameters:
-      svtype: CNV type (unused here, but available for future adjustments)
-      sampleStd: standard deviation metric for the sample (float)
-      pctCalls: percent of calls metric (float)
-      corr: correlation metric (float)
-      log2ratio: observed log₂ ratio (float); e.g., 0 for normal, positive for duplications, negative for deletions.
-      s2n: signal-to-noise metric for the sample (float)
-      s2nc: signal-to-noise metric for controls (float)
-      cn: copy number (float)
-      nRois: number of regions (should be 1 for single-exon calls)
-    
-    Returns:
-      A score (float) between 0 and 1.
-    """
-    # Sample-Level Metrics. Here we are heavy penalyzing samples with high standard deviation and low correlation
-    stdMetric = 1 if sampleStd < 0.2 else 0
-    pctCallsMetric = 1 if pctCalls < 1.5 else 0
-    corrMetric = 1 if corr > 0.97 else 0
-    SLM = 0.45 * stdMetric + 0.45 * pctCallsMetric + 0.1 * corrMetric
-
-    # Major quality contributor for single-exon calls:
-    # distance between observed and expected log2 ratio.
-    expected_ratio = cn / 2.0
-    if expected_ratio <= 0:
-        expected_log2ratio = -2.5
-    else:
-        expected_log2ratio = math.log2(expected_ratio)
-    log2_diff = abs(log2ratio - expected_log2ratio)
-    absDiffMetric = 1.0 / (1.0 + (log2_diff / 0.2) ** 2)
-
-    cvScore = logarithmic_cv_score(coeff_variation)
-    try:
-        posteriorMetric = float(posterior_prob)
-    except (TypeError, ValueError):
-        posteriorMetric = 0.5
-    posteriorMetric = min(max(posteriorMetric, 0.0), 1.0)
-    klMetric = _kl_resolution_score(kl_divergence)
-    snrMetric = _single_exon_log2_snr_score(per_base_log2_snr)
-
-    RLM = (
-        0.52 * absDiffMetric
-        + 0.15 * cvScore
-        + 0.13 * posteriorMetric
-        + 0.10 * klMetric
-        + 0.10 * snrMetric
+    """Return an uncalibrated single-exon CNV quality score in [0, 1]."""
+    signal_fit = _signal_fit_score(log2ratio, cn, tolerance=0.25)
+    hmm_posterior = _posterior_quality(posterior_prob)
+    control_dispersion = _low_is_good_quality(
+        control_cv,
+        good=0.05,
+        poor=0.25,
     )
+    sample_quality = compute_sample_quality(sampleStd, pctCalls, corr)
+    per_base_support = _clamp01(
+        0.50 * _posterior_quality(per_base_state_prob)
+        + 0.25 * _kl_resolution_score(kl_divergence)
+        + 0.25 * _single_exon_log2_snr_score(per_base_log2_snr)
+    )
+    quality = _clamp01(
+        0.32 * signal_fit
+        + 0.20 * hmm_posterior
+        + 0.23 * per_base_support
+        + 0.15 * control_dispersion
+        + 0.10 * sample_quality
+    )
+    components = {
+        "CNV_QUALITY": quality,
+        "HMM_POSTERIOR": hmm_posterior,
+        "SIGNAL_FIT": signal_fit,
+        "DISPERSION_SCORE": control_dispersion,
+        "SAMPLE_QUALITY": sample_quality,
+        "ROI_SUPPORT": _roi_support_score(nRois),
+        "PERBASE_SUPPORT": per_base_support,
+    }
+    return components if return_components else quality
 
-    score = 0.15 * SLM + 0.85 * RLM
-    score *= _single_exon_dispersion_penalty(sampleStd, coeff_variation)
-    score *= _sample_noise_penalty(sample_noise, nRois)
-    score = min(max(score, 0.0), 1.0)
-    return score
 
-
-def score_multiple_exon(svtype, posterio_prob, sampleStd, pctCalls, corr, log2ratio, coeff_variation, cn, nRois, sample_noise=0.0):
-    """
-    Compute a CNV score for a multiple-exon call based on multiple evidence.
-    The observed log2 ratio is converted to a linear ratio.
-    
-    Parameters are similar to score_single_exon, but nRois should be >1.
-    
-    Returns:
-      A score (float) between 0 and 1.
-    """
-    # Sample-Level Metrics:
-    stdMetric = 1 if sampleStd < 0.2 else 0
-    pctCallsMetric = 1 if pctCalls < 1.5 else 0
-    corrMetric = 1 if corr > 0.97 else 0
-    SLM = 0.45 * stdMetric + 0.45 * pctCallsMetric + 0.1 * corrMetric
-
-    # Convert observed log2 ratio to linear ratio.
-    observed_ratio = 2 ** log2ratio
-    expected_ratio = cn / 2.0
-
-    if observed_ratio > expected_ratio:
-        absDiff = 2.5 * abs(observed_ratio - expected_ratio)
-    else:
-        absDiff = 2.5 * abs(expected_ratio - observed_ratio)
-    absDiffMetric = 1 - absDiff if (1 - absDiff) > 0 else 0
-
-    # Compute a z-score metric as before.
-    cvScore = logarithmic_cv_score(coeff_variation)
-
-    # For multiple exon calls, we incorporate a weight based on the number of regions.
-    nRoisMetric = 1 if nRois > 1 else 0
-    nRoiWeight = 0.2 + (nRois * 0.1)
-    signalWeight = 1 - nRoiWeight
-
-    # Combine the ROI-level evidence: here we blend the nRoiMetric with a weighted combination
-    # of the absolute difference and zscore metrics.
-    combinedROI = 0.5 * absDiffMetric + 0.5 * cvScore
-    RLM = (nRoiWeight * nRoisMetric) + (signalWeight * combinedROI)
-    if RLM > 1:
-        RLM = 1
-
-    score = 0.4 * SLM + 0.6 * RLM
-    score *= _multiple_exon_cv_penalty(coeff_variation)
-    score *= _sample_noise_penalty(sample_noise, nRois)
-    score = min(max(score, 0.0), 1.0)
-    return score
+def score_multiple_exon(
+    svtype,
+    posterior_prob,
+    sampleStd,
+    pctCalls,
+    corr,
+    log2ratio,
+    event_std,
+    cn,
+    nRois,
+    return_components=False,
+):
+    """Return an uncalibrated multi-exon CNV quality score in [0, 1]."""
+    signal_fit = _signal_fit_score(log2ratio, cn, tolerance=0.35)
+    hmm_posterior = _posterior_quality(posterior_prob)
+    event_dispersion = _low_is_good_quality(
+        event_std,
+        good=0.05,
+        poor=0.30,
+    )
+    sample_quality = compute_sample_quality(sampleStd, pctCalls, corr)
+    roi_support = _roi_support_score(nRois)
+    quality = _clamp01(
+        0.30 * signal_fit
+        + 0.25 * hmm_posterior
+        + 0.20 * event_dispersion
+        + 0.15 * roi_support
+        + 0.10 * sample_quality
+    )
+    components = {
+        "CNV_QUALITY": quality,
+        "HMM_POSTERIOR": hmm_posterior,
+        "SIGNAL_FIT": signal_fit,
+        "DISPERSION_SCORE": event_dispersion,
+        "SAMPLE_QUALITY": sample_quality,
+        "ROI_SUPPORT": roi_support,
+        "PERBASE_SUPPORT": None,
+    }
+    return components if return_components else quality
 
 #########################################
 def get_total_lines_bed(input_bed):
@@ -416,23 +380,23 @@ def get_total_lines_bed(input_bed):
     return n_rois
 
 ########################################################################
-# export_cnv_calls_to_bed function with new CNV_SCORE calculation
+# Export final CNV calls with explicit quality components.
 ########################################################################
 
 def export_cnv_calls_to_bed(sample_list, analysis_dict):
     """
-    Join CNV calls and export a single file with an updated CNV_SCORE computed from multiple evidence.
+    Join CNV calls and export a file with CNV_QUALITY and its components.
     For each sample, it reads the CNV calls bed file (sample.cnv_calls_bed), and for each call,
-    it computes a new CNV_SCORE using the evidence metrics. The new score is added to the INFO field.
+    CNV_SCORE is retained only as a compatibility alias of CNV_QUALITY.
     
     The expected input file is tab-separated with columns:
       [0] sample, [1] chr, [2] start, [3] end, [4] GC, [5] MAP, [6] ZSCORE, [7] NREGIONS, 
-      [8] LOG2RATIO, [9] CN, [10] stdev, [11] ... , [second-to-last] SVTYPE
-    (Adjust column indices as needed.)
+      [8] LOG2RATIO, [9] CN, [10] HMM_POSTERIOR, [11] auxiliary metrics,
+      [12] SVTYPE, [13] CONTROL_CV, [14] EVENT_STD.
     """
 
     total_rois = get_total_lines_bed(analysis_dict["bed"])
-    min_cnv_score = 0.5
+    min_cnv_quality = float(analysis_dict.get("min_cnv_quality", 0.5))
     
 
     for sample in sample_list:
@@ -442,7 +406,12 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
         total_calls = get_total_lines_bed(sample.cnv_calls_bed)
 
         pctCalls = 100*(total_calls/total_rois)
-        sample_noise = compute_sample_noise(sample.std_log2_ratio, pctCalls, sample.mean_correlation)
+        sample_log2_mad = getattr(sample, "log2_mad", sample.std_log2_ratio)
+        raw_reference_correlation = getattr(
+            sample,
+            "mean_raw_reference_correlation",
+            (2.0 * float(sample.mean_correlation)) - 1.0,
+        )
 
         # Output file name
         target_name = f'{sample.name}.GRAPES2.cnv.bed'
@@ -453,45 +422,38 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
                 if line.startswith("chr\tstart"):
                     continue
                 tmp = line.split("\t")
-                # Here, we assume the last column is stdev and we skip calls with high stdev.
+                # The last column is within-event log2-ratio standard deviation.
                 try:
-                    stdev = float(tmp[-1])
-                except:
-                    stdev = 0
-                if stdev >= 0.3:
+                    event_std = abs(float(tmp[-1]))
+                except (TypeError, ValueError):
+                    event_std = 0.3
+                if event_std >= 0.3:
                     continue
 
-                # Extract fields from the line.
-                # Adjust indices as needed for your file format.
-                # For our scoring, we assume:
-                #   - SVTYPE: column -2
-                #   - REGION: column 3 (end coordinate string)
-                #   - GC: column 4
-                #   - MAP: column 5
-                #   - ZSCORE: column 6 (we use this as sampleStd)
-                #   - NREGIONS: column 7 (we use as nRois)
-                #   - LOG2RATIO: column 8 (we convert this to ratio by 2^(value))
-                #   - CN: column 9
-                #   - For the other metrics, we use defaults:
-                #         pctCalls: default 1.0
-                #         corr: default 0.98
-                #         s2n: default 12
-                #         s2nc: default 12
                 svtype = tmp[-3]
                 region_str = tmp[3].replace(";", "_")
                 gc_val = tmp[4]
                 map_val = tmp[5]
-                # Use ZSCORE as a proxy for sampleStd
                 zscore = float(tmp[6])
                 nRois = int(tmp[7])
                 log2ratio = float(tmp[8])
-                posterior_prob = float(tmp[10])
+                hmm_posterior = float(tmp[10])
                 kl_divergence = None
                 per_base_log2_snr = None
+                per_base_state_prob = None
                 if nRois == 1 and len(tmp) > 11:
                     aux_metric = tmp[11]
                     if "|" in aux_metric:
-                        kl_str, snr_str = aux_metric.split("|", 1)
+                        aux_parts = aux_metric.split("|")
+                        if len(aux_parts) == 3:
+                            probability_str, kl_str, snr_str = aux_parts
+                            try:
+                                per_base_state_prob = float(probability_str)
+                            except (TypeError, ValueError):
+                                per_base_state_prob = None
+                        else:
+                            # Backward-compatible parsing of legacy KL|SNR files.
+                            kl_str, snr_str = aux_parts[0:2]
                         try:
                             kl_divergence = float(kl_str)
                         except (TypeError, ValueError):
@@ -506,39 +468,84 @@ def export_cnv_calls_to_bed(sample_list, analysis_dict):
                         except (TypeError, ValueError):
                             kl_divergence = None
 
-                # Convert log2ratio to ratio: 2^(log2ratio)
-                # ratio = 2 ** log2ratio
                 cn = float(tmp[9])
-                cv = round(float(tmp[-2]), 3)
+                try:
+                    control_cv = abs(float(tmp[-2]))
+                except (TypeError, ValueError):
+                    control_cv = None
 
-                #sample11.simulated DUP 0.6973133908081831 0.0010204081632653062 0.992 0.573 7.255 3.0 12
-                # print(sample.name, svtype, posterior_prob, sample.std_log2_ratio, pctCalls, sample.mean_correlation, log2ratio, zscore, cn, nRois)
-                # Choose scoring function based on nRois (if >1, treat as multiple exon call)
                 if nRois > 1:
-                    cnv_score = score_multiple_exon(svtype, posterior_prob, sample.std_log2_ratio, 
-                        pctCalls, sample.mean_correlation, log2ratio, cv, cn, nRois, sample_noise=sample_noise)
+                    score_components = score_multiple_exon(
+                        svtype,
+                        hmm_posterior,
+                        sample_log2_mad,
+                        pctCalls,
+                        raw_reference_correlation,
+                        log2ratio,
+                        event_std,
+                        cn,
+                        nRois,
+                        return_components=True,
+                    )
                 else:
-                    cnv_score = score_single_exon(svtype, posterior_prob, sample.std_log2_ratio, 
-                        pctCalls, sample.mean_correlation, log2ratio, cv, cn, nRois,
+                    score_components = score_single_exon(
+                        svtype,
+                        hmm_posterior,
+                        sample_log2_mad,
+                        pctCalls,
+                        raw_reference_correlation,
+                        log2ratio,
+                        control_cv,
+                        cn,
+                        nRois,
                         kl_divergence=kl_divergence,
                         per_base_log2_snr=per_base_log2_snr,
-                        sample_noise=sample_noise)
+                        per_base_state_prob=per_base_state_prob,
+                        return_components=True,
+                    )
+                cnv_quality = score_components["CNV_QUALITY"]
+                reported_dispersion = (
+                    control_cv if nRois == 1 and control_cv is not None else event_std
+                )
 
-                if cnv_score < min_cnv_score:
+                if cnv_quality < min_cnv_quality:
                     continue
 
                 # Prepare the INFO field
                 info = {
+                    "QUALITY_MODEL": "GRAPES2_HEURISTIC_V2",
                     "SVTYPE": svtype,
                     "REGION": region_str,
                     "GC": gc_val,
                     "MAP": map_val,
                     "ZSCORE": tmp[6],
-                    "CV": cv,
+                    "CV": round(reported_dispersion, 4),
                     "NREGIONS": tmp[7],
                     "LOG2RATIO": tmp[8],
                     "CN": tmp[9],
-                    "CNV_SCORE": str(round(cnv_score, 3))
+                    "HMM_POSTERIOR": round(
+                        score_components["HMM_POSTERIOR"], 4
+                    ),
+                    "SIGNAL_FIT": round(score_components["SIGNAL_FIT"], 4),
+                    "DISPERSION_SCORE": round(
+                        score_components["DISPERSION_SCORE"], 4
+                    ),
+                    "SAMPLE_QUALITY": round(
+                        score_components["SAMPLE_QUALITY"], 4
+                    ),
+                    "ROI_SUPPORT": round(score_components["ROI_SUPPORT"], 4),
+                    "PERBASE_SUPPORT": (
+                        round(score_components["PERBASE_SUPPORT"], 4)
+                        if score_components["PERBASE_SUPPORT"] is not None
+                        else "."
+                    ),
+                    "EVENT_STD": round(event_std, 4),
+                    "CONTROL_CV": (
+                        round(control_cv, 4) if control_cv is not None else "."
+                    ),
+                    # CNV_SCORE is retained as a backward-compatible alias.
+                    "CNV_QUALITY": round(cnv_quality, 4),
+                    "CNV_SCORE": round(cnv_quality, 4),
                 }
                 info_str = "IMPRECISE;" + ";".join(f"{k}={v}" for k, v in info.items())
                
@@ -762,18 +769,20 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 signal_ratio = round(math.log2(median_cov_case / median_cov_controls), 3)
             z_score = calculate_z_score(signal_ratio, candidate_cnvs[cnv_call]["control_ratios"])
             
-            # --- Original Gaussian-based likelihood (for comparison) ---
-            probs_list = []
+            # Normalize Gaussian state likelihoods on the log scale.
+            log_likelihoods = []
             for state in [0,1,2,3,4]:
                 effective_ratio = 0.01 if state == 0 else state / 2.0
                 expected_depth = median_cov_controls * effective_ratio
-                prob = norm.pdf(median_cov_case, loc=expected_depth, scale=std_cov_controls)
-                probs_list.append(prob)
-            max_log_prob = np.max(probs_list)
-            probs = np.exp(np.array(probs_list) - max_log_prob)
+                log_likelihoods.append(
+                    norm.logpdf(
+                        median_cov_case,
+                        loc=expected_depth,
+                        scale=std_cov_controls,
+                    )
+                )
+            probs = np.exp(np.asarray(log_likelihoods) - logsumexp(log_likelihoods))
             probs /= np.sum(probs)
-            most_state = np.argmax(probs)
-            most_prob = probs[most_state]
             cn = tmp_cnv_call[-3]            
 
             single_prob = probs[int(cn)]
@@ -807,8 +816,11 @@ def filter_single_exon_cnv(sample_list, upper_del_threshold, dup_threshold, anal
                 if abs(z_score) >= 2.5 and cv_value <= 0.25:
                     # Here, you can either output the KL divergence as part of the call or use it to adjust a score.
                     # We'll output the call with the KL value.
-                    tmp_cnv_call[-2] = str(single_prob)
-                    tmp_cnv_call[-1] = f"{kl_val:.4f}|{snr_metric:.4f}"
+                    # Preserve the HMM posterior and record per-base evidence
+                    # separately instead of replacing one probability with another.
+                    tmp_cnv_call[-1] = (
+                        f"{single_prob:.6f}|{kl_val:.4f}|{snr_metric:.4f}"
+                    )
                     final_call = '\t'.join(tmp_cnv_call)
                     o.write(final_call + "\t" + svtype_final + "\t" + str(cv_value) + "\n")
                     msg = (
@@ -1129,7 +1141,10 @@ def call_raw_cnvs(
                     fh.write(line)
 
         # Prepare headers
-        o.write("chr\tstart\tend\tregions\tn_regions\tlog2_ratio\tcn\tphred\tzscore\tcnvtype\tcv\n")
+        o.write(
+            "chr\tstart\tend\tregions\tn_regions\tlog2_ratio\tcn\t"
+            "hmm_posterior\tzscore\tcnvtype\tdispersion\n"
+        )
         
         # ------------------------------
         # Multi-exon calls
@@ -1152,7 +1167,7 @@ def call_raw_cnvs(
                 prob_score = float(tmp[7])
 
                 mean_gc, mean_map = get_gc_map_from_segment(chrom, start, end, ratio_file_no_header)
-                zscore, cv = compute_zscore_and_cv(log2_ratio, sample)
+                zscore = compute_zscore(log2_ratio, sample)
 
                 # Filters:
                 if mean_gc < 20 or mean_gc > 80:
@@ -1177,7 +1192,7 @@ def call_raw_cnvs(
                 # If we have a valid CNV
                 if cnvtype != "":
                     # We consider multi-exon CNVs only if n_regions > 1
-                    outline = f"{line}\t1\t{cnvtype}\t{str(cv)}\n"
+                    outline = f"{line}\t.\t{cnvtype}\t.\n"
                     if n_regions > 1:
                         # Check if it's on/off target
                         if analysis_dict["offtarget"] == False and "pwindow" in regions:
@@ -1233,9 +1248,7 @@ def call_raw_cnvs(
                     continue
                 
                 cn = int(state)
-                zscore, cv = compute_zscore_and_cv(log2_ratio, sample)
-
-                # cv = sample.std_log2_ratio/log2_ratio
+                zscore = compute_zscore(log2_ratio, sample)
 
                 if gc_content < 20 or gc_content > 80:
                     continue
@@ -1286,7 +1299,7 @@ def call_raw_cnvs(
                             str(log2_ratio),
                             str(cn),
                             prob,
-                            "1",
+                            ".",
                             cnvtype
                         ]
                         q.write("\t".join(tmp_out) + "\n")
@@ -1358,7 +1371,11 @@ def call_cnvs(sample_list, upper_del_threshold, dup_threshold, z_score):
         segmented_cnvs_dict = get_segmented_cnvs(ratio_no_header, tmp_calls)
 
         o = open(cnv_calls_bed, "w")
-        o.write("chr\tstart\tend\tregions\tgc\tmap\tz_score\tn_regions\tlog2_ratio\tcopy_number\tscore\tkl_snr\tcnvtype\tstd\tcv\n")
+        o.write(
+            "chr\tstart\tend\tregions\tgc\tmap\tz_score\tn_regions\t"
+            "log2_ratio\tcopy_number\thmm_posterior\tperbase_metrics\t"
+            "cnvtype\tcontrol_cv\tevent_std\n"
+        )
         for variant in segmented_cnvs_dict:
             arr = np.array(segmented_cnvs_dict[variant]["ratios"])
             std = round(np.std(arr), 3)

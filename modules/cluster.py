@@ -21,6 +21,7 @@ from adjustText import adjust_text
 import pandas as pd
 
 from .baseline_db import init_db, calculate_bed_md5, calculate_baseline_median_depth
+from .utils import atomic_write_dataframe, update_stage_manifest
 
 pd.options.mode.chained_assignment = None  # default='warn'
 
@@ -33,58 +34,59 @@ def launch_sample_clustering(sample_list, analysis_dict):
 
     sample_list, analysis_dict = calculate_depth_correlation(sample_list, analysis_dict)
 
-    sample_list = cluster_samples(analysis_dict["correlation_tsv"], sample_list, analysis_dict)
+    sample_list = cluster_samples(
+        analysis_dict["correlation_tsv"],
+        sample_list,
+        analysis_dict,
+        min_correlation=float(analysis_dict.get("min_reference_correlation", 0.85)),
+        min_refs=int(analysis_dict.get("min_reference_samples", 3)),
+        max_refs=int(analysis_dict.get("max_reference_samples", 10)),
+    )
 
     analysis_dict = create_heatmap(sample_list, analysis_dict)
 
     return sample_list, analysis_dict
 
 
-def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.5, min_refs=1, max_refs=10):
-    """ """
-    n_line = 0
-    header = []
+def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.85, min_refs=3, max_refs=10):
+    """Select the best references using a raw Spearman correlation threshold."""
+    if not -1.0 <= min_correlation <= 1.0:
+        raise ValueError("min_reference_correlation must be between -1 and 1")
+    if min_refs < 1:
+        raise ValueError("min_reference_samples must be at least 1")
+    if max_refs < min_refs:
+        raise ValueError("max_reference_samples must be >= min_reference_samples")
+
+    similarity_df = pd.read_csv(corr_tsv, sep="\t", index_col=0)
     corr_dict = defaultdict(dict)
+    for current_sample in similarity_df.index:
+        candidates = []
+        for reference_name, similarity in similarity_df.loc[current_sample].items():
+            if reference_name == current_sample or not np.isfinite(similarity):
+                continue
+            raw_correlation = (2.0 * float(similarity)) - 1.0
+            if raw_correlation < min_correlation:
+                continue
+            candidates.append(
+                (reference_name, float(similarity), raw_correlation)
+            )
 
-    max_n = 0
-    max_sample = ""
-
-    with open(corr_tsv) as f:
-        for line in f:
-            n_line += 1
-            line = line.rstrip("\n")
-            tmp = line.split("\t")
-            # header
-            if n_line == 1:
-                for sample in tmp:
-                    if sample == "":
-                        continue
-                    header.append(sample)
-            # data
-            else:
-                current_sample = tmp[0]
-                corr_dict[current_sample] = defaultdict(dict)
-                corr_dict[current_sample]["correlations"] = defaultdict(dict)
-                idx = 0
-                tmp_corr_dict = defaultdict(dict)
-                tmp_corr_list = []
-                n_refs = 0
-                for corr in tmp[1:]:
-                    sample = header[idx]
-                    if sample != current_sample:
-                        if float(corr) >= min_correlation:
-                            tmp_corr_dict[sample] = str(round(float(corr), 3))
-                            tmp_corr_list.append(round(float(corr), 3))
-                            n_refs += 1
-                    idx += 1
-                if n_refs > max_n:
-                    max_n = n_refs
-                    max_sample = current_sample
-                corr_dict[current_sample]["n_references"] = n_refs
-                corr_dict[current_sample]["correlations"] = tmp_corr_dict
-                corr_dict[current_sample]["mean_correlation"] = round(
-                    np.mean(tmp_corr_list), 3
-                )
+        candidates.sort(key=lambda item: item[2], reverse=True)
+        selected = candidates[:max_refs]
+        corr_dict[current_sample]["n_references"] = len(selected)
+        corr_dict[current_sample]["correlations"] = {
+            name: round(similarity, 6) for name, similarity, _ in selected
+        }
+        corr_dict[current_sample]["mean_correlation"] = (
+            round(float(np.mean([item[1] for item in selected])), 6)
+            if selected
+            else 0.0
+        )
+        corr_dict[current_sample]["mean_raw_correlation"] = (
+            round(float(np.mean([item[2] for item in selected])), 6)
+            if selected
+            else 0.0
+        )
 
     # Get all available non-overlapping baselines (group of samples with high correlation)
     seen_samples = []
@@ -117,14 +119,34 @@ def cluster_samples(corr_tsv, sample_list, analysis_dict, min_correlation=0.5, m
         else:
             sample.add("analyzable", "False")
             sample.analysis_json["analyzable"] = "False"
+            logging.warning(
+                " WARNING: Sample %s has only %d references with raw Spearman "
+                ">= %.3f; at least %d are required",
+                sample_name,
+                nrefs,
+                min_correlation,
+                min_refs,
+            )
         sample.add("mean_correlation", corr_dict[sample_name]["mean_correlation"])
         sample.analysis_json["mean_correlation"] = corr_dict[sample_name]["mean_correlation"]
-        ref_dict = sorted(
-            corr_dict[sample_name]["correlations"].items(),
-            key=lambda item: item[1],
-            reverse=True,
+        sample.analysis_json["mean_raw_reference_correlation"] = corr_dict[
+            sample_name
+        ]["mean_raw_correlation"]
+        sample.add(
+            "mean_raw_reference_correlation",
+            corr_dict[sample_name]["mean_raw_correlation"],
         )
+        sample.analysis_json["reference_count"] = nrefs
+        ref_dict = list(corr_dict[sample_name]["correlations"].items())
         sample.add("references", ref_dict)
+
+        if nrefs >= min_refs:
+            logging.info(
+                " INFO: Selected %d references for %s (mean raw Spearman %.3f)",
+                nrefs,
+                sample_name,
+                corr_dict[sample_name]["mean_raw_correlation"],
+            )
 
     return sample_list
 
@@ -142,16 +164,36 @@ def calculate_depth_correlation(sample_list, analysis_dict):
         newdf[sample_name] = df[sample_tag]
         names_list.append(sample_name)
     data = newdf[names_list]
-    dat_corr = data.corr(method="spearman")
-
-    dat_corr = (dat_corr + 1) / 2
+    raw_correlation = data.corr(method="spearman")
+    similarity_correlation = (raw_correlation + 1) / 2
 
     for sample in sample_list:
-        sample.analysis_json["correlation_matrix"] = dat_corr.to_json()
+        sample.analysis_json["correlation_matrix"] = similarity_correlation.to_json()
 
     correlation_tsv = str(Path(analysis_dict["output_dir"]) / "correlation.tsv")
-    dat_corr.to_csv(correlation_tsv, sep="\t", mode="w")
+    raw_correlation_tsv = str(
+        Path(analysis_dict["output_dir"]) / "correlation.raw.tsv"
+    )
+    atomic_write_dataframe(
+        similarity_correlation,
+        correlation_tsv,
+        sep="\t",
+        index=True,
+    )
+    atomic_write_dataframe(
+        raw_correlation,
+        raw_correlation_tsv,
+        sep="\t",
+        index=True,
+    )
     analysis_dict["correlation_tsv"] = correlation_tsv
+    analysis_dict["raw_correlation_tsv"] = raw_correlation_tsv
+    update_stage_manifest(
+        analysis_dict["output_dir"],
+        "sample_correlation",
+        [correlation_tsv, raw_correlation_tsv],
+        metadata={"sample_and_baseline_count": len(names_list)},
+    )
 
     return sample_list, analysis_dict
 

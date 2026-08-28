@@ -24,7 +24,12 @@ from modules.call import (
     export_all_calls
 )
 from modules.vcf import bed_to_vcf
-from modules.utils import remove_tmp_files
+from modules.utils import (
+    atomic_output_path,
+    remove_tmp_files,
+    update_stage_manifest,
+    validate_vcf_file,
+)
 
 from modules.random_forest import load_model, process_vcf
 
@@ -181,21 +186,53 @@ def main(args):
         sample.add("calls_bed", merged_bed)
         merge_bed_files(cnv_bed, sv_bed, merged_bed)
 
-        sample = bed_to_vcf(merged_bed, analysis_dict["bed"], sample.bam, args.reference, 
-            final_vcf, sample, args.min_gc, args.max_gc, args.min_mappability, args.min_size, args.apply_rf)
+        with atomic_output_path(final_vcf) as temporary_vcf:
+            sample = bed_to_vcf(
+                merged_bed,
+                analysis_dict["bed"],
+                sample.bam,
+                args.reference,
+                temporary_vcf,
+                sample,
+                args.min_gc,
+                args.max_gc,
+                args.min_mappability,
+                args.min_size,
+                args.apply_rf,
+            )
+            if not validate_vcf_file(temporary_vcf):
+                raise RuntimeError(
+                    f"Final VCF failed validation for sample {sample.name}"
+                )
 
         json_data = json.dumps(sample.analysis_json, indent=2)
 
         output_json = os.path.join(args.output_dir, sample.name, 
             f"{sample.name}.GRAPES2.json")
 
-        with open(output_json, 'w') as f:
-            json.dump(json_data, f)
+        with atomic_output_path(output_json) as temporary_json:
+            with open(temporary_json, "w", encoding="utf-8") as f:
+                json.dump(json_data, f)
+            with open(temporary_json, "r", encoding="utf-8") as f:
+                json.load(f)
+
+        update_stage_manifest(
+            args.output_dir,
+            f"final_outputs:{sample.name}",
+            [merged_bed, final_vcf, output_json],
+        )
             
     export_all_calls(sample_list, analysis_dict)
 
-
-    # remove_tmp_files(args.output_dir)
+    if getattr(args, "keep_intermediate_files", False):
+        logging.info(" INFO: Keeping GRAPES2 intermediate files")
+    else:
+        removed_files, reclaimed_bytes = remove_tmp_files(args.output_dir)
+        reclaimed_gib = reclaimed_bytes / (1024 ** 3)
+        logging.info(
+            f" INFO: Removed {len(removed_files)} GRAPES2 intermediate files "
+            f"({reclaimed_gib:.2f} GiB)"
+        )
 
 
 def parse_arguments():
@@ -290,10 +327,44 @@ def parse_arguments():
         dest="single_exon_cnv_target_limit",
     )
     parser.add_argument(
+        "--min_reference_correlation",
+        "--min-reference-correlation",
+        type=float,
+        default=0.85,
+        help="Minimum raw Spearman correlation for a reference sample (default: 0.85)",
+        dest="min_reference_correlation",
+    )
+    parser.add_argument(
+        "--min_reference_samples",
+        "--min-reference-samples",
+        type=int,
+        default=3,
+        help="Minimum number of qualified references required per sample (default: 3)",
+        dest="min_reference_samples",
+    )
+    parser.add_argument(
+        "--max_reference_samples",
+        "--max-reference-samples",
+        type=int,
+        default=10,
+        help="Maximum number of highest-correlation references to use (default: 10)",
+        dest="max_reference_samples",
+    )
+    parser.add_argument(
         "--force",
         action="store_true", 
         help="Force recomputation of outputs when files already exist ",
         dest="force",
+    )
+    parser.add_argument(
+        "--keep_intermediate_files",
+        "--keep-intermediate-files",
+        action="store_true",
+        help=(
+            "Keep large coverage, count, normalization, and other reproducible "
+            "intermediate files (removed by default)"
+        ),
+        dest="keep_intermediate_files",
     )
     parser.add_argument(
         "--use_baseline_db",
@@ -328,6 +399,14 @@ def parse_arguments():
         default=2.58,
         help=".",
         dest="min_zscore",
+    )
+    parser.add_argument(
+        "--min_cnv_quality",
+        "--min-cnv-quality",
+        type=float,
+        default=0.5,
+        help="Minimum uncalibrated CNV_QUALITY value to report (default: 0.5)",
+        dest="min_cnv_quality",
     )
     parser.add_argument(
         "--min_size",
@@ -408,6 +487,8 @@ def parse_arguments():
 
 
     args = parser.parse_args()
+    if not 0.0 <= args.min_cnv_quality <= 1.0:
+        parser.error("--min_cnv_quality must be between 0 and 1")
     return args
 
 

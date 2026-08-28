@@ -4,13 +4,61 @@ from pathlib import Path
 import re
 import logging
 import subprocess
+import shutil
+import shlex
+import tempfile
 import pandas as pd
 from functools import partial, reduce
 from modules.sample import Sample
 from modules.params import *
 from modules.gc_content import annotate_gc
 from modules.mappability import annotate_mappability
-from modules.utils import sort_bed_file
+from modules.utils import (
+    atomic_output_path,
+    sort_bed_file,
+    stage_manifest_matches,
+    update_stage_manifest,
+    validate_delimited_file,
+)
+
+
+READ_DEPTH_META_COLUMNS = ["chr", "start", "end", "exon", "gc", "map"]
+
+
+def _read_depth_outputs_valid(
+    unified_raw_depth,
+    summary_log,
+    sample_list,
+    per_base_coverage_file=None,
+):
+    sample_names = [sample.name for sample in sample_list]
+    required_depth_columns = READ_DEPTH_META_COLUMNS + sample_names
+    if not validate_delimited_file(
+        unified_raw_depth,
+        required_columns=required_depth_columns,
+        min_columns=len(required_depth_columns),
+    ):
+        return False
+    if not validate_delimited_file(
+        summary_log,
+        required_columns=[
+            "SAMPLE",
+            "READS_ON_TARGET",
+            "%ROI",
+            "MEAN_COVERAGE",
+            "MEAN_COVERAGE_X",
+        ],
+        min_columns=5,
+    ):
+        return False
+    if per_base_coverage_file is not None:
+        if not validate_delimited_file(
+            per_base_coverage_file,
+            required_columns=required_depth_columns,
+            min_columns=len(required_depth_columns),
+        ):
+            return False
+    return True
 
 
 def launch_read_depth(sample_list, analysis_dict, ngs_utils, ann_dict):
@@ -30,55 +78,157 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
     analysis_dict["unified_raw_depth"] = unified_raw_depth
 
 
-    per_base_coverage_name = ("{}.per.base.coverage.bed").format(
-        analysis_dict["output_name"]
-    )
+    needs_per_base_coverage = bool(analysis_dict.get("single_exon_cnv", True))
+    per_base_coverage_name = f'{analysis_dict["output_name"]}.per.base.coverage.bed'
     per_base_coverage_file = str(
         Path(analysis_dict["output_dir"]) / per_base_coverage_name
     )
-    analysis_dict["per_base_coverage"] = per_base_coverage_file
-
-    cmd = ("{} -i {} -o {} -n {} -g {} -b {} -t {} -c -d ").format(
-        ngs_utils_dict["targetdepth"],
-        analysis_dict["bam_dir"],
-        analysis_dict["output_dir"],
-        analysis_dict["output_name"],
-        analysis_dict["reference"],
-        analysis_dict["ready_bed"],
-        analysis_dict["threads"],
+    analysis_dict["per_base_coverage"] = (
+        per_base_coverage_file if needs_per_base_coverage else None
     )
-    cmd_str = " ".join(cmd)
 
-    if not os.path.isfile(unified_raw_depth) and not os.path.isfile(
-        per_base_coverage_file
+    summary_log_name = "summary_metrics.log"
+    summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
+    required_per_base_file = (
+        per_base_coverage_file if needs_per_base_coverage else None
+    )
+    read_depth_inputs = [
+        path
+        for path in [
+            analysis_dict.get("ready_bed"),
+            analysis_dict.get("reference"),
+            analysis_dict.get("bam_dir"),
+            *[getattr(sample, "bam", None) for sample in sample_list],
+        ]
+        if path and os.path.isfile(path)
+    ]
+    read_depth_metadata = {
+        "per_base_coverage": needs_per_base_coverage,
+        "samples": [sample.name for sample in sample_list],
+    }
+    expected_outputs = [unified_raw_depth, summary_log]
+    if needs_per_base_coverage:
+        expected_outputs.append(per_base_coverage_file)
+    read_depth_current = stage_manifest_matches(
+        analysis_dict["output_dir"],
+        "read_depth",
+        expected_outputs,
+        input_paths=read_depth_inputs,
+        metadata=read_depth_metadata,
+    )
+
+    if (
+        analysis_dict.get("force", False)
+        or not read_depth_current
+        or not _read_depth_outputs_valid(
+            unified_raw_depth,
+            summary_log,
+            sample_list,
+            required_per_base_file,
+        )
     ):
         msg = f' INFO: Extracting coverage for {analysis_dict["output_name"]}'
         logging.info(msg)
+        if not needs_per_base_coverage:
+            logging.info(
+                " INFO: Per-base coverage disabled because single-exon CNV "
+                "analysis is not enabled"
+            )
 
-        p1 = subprocess.run(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        stage_dir = tempfile.mkdtemp(
+            prefix=".targetdepth-",
+            dir=analysis_dict["output_dir"],
         )
-        output = p1.stdout.decode("UTF-8")
-        error = p1.stderr.decode("UTF-8")
+        targetdepth_log = str(
+            Path(analysis_dict["output_dir"]) / "targetdepth.console.log"
+        )
+        cmd = [
+            ngs_utils_dict["targetdepth"],
+            "-i",
+            analysis_dict["bam_dir"],
+            "-o",
+            stage_dir,
+            "-n",
+            analysis_dict["output_name"],
+            "-g",
+            analysis_dict["reference"],
+            "-b",
+            analysis_dict["ready_bed"],
+            "-t",
+            str(analysis_dict["threads"]),
+            "-c",
+        ]
+        if needs_per_base_coverage:
+            cmd.append("-d")
+        logging.info(f" INFO: TargetDepth command: {shlex.join(cmd)}")
 
-    if os.path.isfile(per_base_coverage_file):
+        try:
+            with open(targetdepth_log, "wb") as log_handle:
+                completed = subprocess.run(
+                    cmd,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                )
+            staged_unified_depth = str(Path(stage_dir) / unified_depth_name)
+            staged_summary_log = str(Path(stage_dir) / summary_log_name)
+            staged_per_base = (
+                str(Path(stage_dir) / per_base_coverage_name)
+                if needs_per_base_coverage
+                else None
+            )
+            if completed.returncode != 0 or not _read_depth_outputs_valid(
+                staged_unified_depth,
+                staged_summary_log,
+                sample_list,
+                staged_per_base,
+            ):
+                raise RuntimeError(
+                    "TargetDepth failed or produced invalid outputs; console output "
+                    f"is available at {targetdepth_log}"
+                )
+
+            for staged_file in Path(stage_dir).iterdir():
+                if staged_file.is_file():
+                    os.replace(
+                        str(staged_file),
+                        str(Path(analysis_dict["output_dir"]) / staged_file.name),
+                    )
+        finally:
+            shutil.rmtree(stage_dir, ignore_errors=True)
+    else:
+        logging.info(" INFO: Reusing validated TargetDepth outputs")
+
+    if needs_per_base_coverage and os.path.isfile(per_base_coverage_file):
         if not check_first_line(per_base_coverage_file):
-            per_base_coverage_file_tmp = per_base_coverage_file.replace(".bed", ".tmp.bed")
-            o = open(per_base_coverage_file_tmp, "w")
-            with open (per_base_coverage_file) as f:
-                for line in f:
-                    if line.startswith("chr\tstart"):
-                        o.write("#" + line)
-                        continue
-                    o.write(line)
-            f.close()
-            o.close()
-            os.remove(per_base_coverage_file)
-            os.rename(per_base_coverage_file_tmp, per_base_coverage_file)
+            with atomic_output_path(per_base_coverage_file) as temporary_path:
+                with open(temporary_path, "w", encoding="utf-8") as output_handle:
+                    with open(
+                        per_base_coverage_file, "r", encoding="utf-8"
+                    ) as input_handle:
+                        for line in input_handle:
+                            if line.startswith("chr\tstart"):
+                                output_handle.write("#" + line)
+                            else:
+                                output_handle.write(line)
 
-    
-    summary_log_name = "summary_metrics.log"
-    summary_log = str(Path(analysis_dict["output_dir"]) / summary_log_name)
+    if not _read_depth_outputs_valid(
+        unified_raw_depth,
+        summary_log,
+        sample_list,
+        required_per_base_file,
+    ):
+        raise RuntimeError("TargetDepth outputs failed final validation")
+
+    stage_outputs = [unified_raw_depth, summary_log]
+    if needs_per_base_coverage:
+        stage_outputs.append(per_base_coverage_file)
+    update_stage_manifest(
+        analysis_dict["output_dir"],
+        "read_depth",
+        stage_outputs,
+        metadata=read_depth_metadata,
+        input_paths=read_depth_inputs,
+    )
 
     with open(summary_log) as f:
         header_line = f.readline().rstrip("\n")
@@ -117,8 +267,7 @@ def extract_read_depth(sample_list, analysis_dict, ngs_utils_dict, ann_dict):
                 sample.add("mean_coverage_X", mean_coverage_X)
                 sample.add("gender", gender)
                 msg = f" INFO: {sample.name}\tGender_ratio_X:{x_ratio}\tGender:{gender}"
-                print(msg)
-        f.close()
+                logging.info(msg)
 
     return sample_list, analysis_dict
 

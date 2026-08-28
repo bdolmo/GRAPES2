@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 import hashlib
 import pandas as pd
 import re
+import logging
 
 Base = declarative_base()
 
@@ -64,7 +65,33 @@ def import_baselines_to_df(analysis_dict, df):
     analysis_dict["latest_baseline"] = max_n
 
     for baseline_id in baselines_depth_dict:
-        df[baseline_id] = baselines_depth_dict[baseline_id]
+        baseline_values = baselines_depth_dict[baseline_id]
+        if len(baseline_values) != len(df):
+            logging.warning(
+                " WARNING: Ignoring baseline %s because it has %d targets; "
+                "the current BED has %d",
+                baseline_id,
+                len(baseline_values),
+                len(df),
+            )
+            continue
+        df[baseline_id] = baseline_values
+
+    imported_baseline_count = sum(
+        1 for column in df.columns if str(column).startswith("baseline")
+    )
+    analysis_dict["imported_baseline_count"] = imported_baseline_count
+    if imported_baseline_count == 0:
+        logging.warning(
+            " WARNING: Baseline database was requested but no compatible "
+            "baseline references were found for BED MD5 %s",
+            analysis_dict["bed_md5"],
+        )
+    else:
+        logging.info(
+            " INFO: Imported %d compatible baseline references",
+            imported_baseline_count,
+        )
 
     return df
 
@@ -174,22 +201,15 @@ def update_baselines(df, analysis_dict):
     
 
 def calculate_bed_md5(bed: str)-> str:
-    """ """
-    # create tmp bed
-    tmp_bed = bed.replace(".bed", ".tmp.bed")
-    o = open(tmp_bed, "w")
-    with open(bed) as f:
-        for line in f:
-            tmp = line.split("\t")
-            o.write(f"{tmp[0]}\t{tmp[1]}\t{tmp[2]}\n")
-    o.close()
-
+    """Calculate an MD5 over BED coordinates without creating a temporary file."""
     md5_hash = hashlib.md5()
-    # Open the file in binary mode
-    with open(tmp_bed, 'rb') as f:
-        # Read and update hash in chunks of 4K
-        for byte_block in iter(lambda: f.read(4096), b""):
-            md5_hash.update(byte_block)
-    os.remove(tmp_bed)
+    with open(bed, "r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\r\n").split("\t")
+            if len(fields) < 3:
+                raise ValueError(f"Invalid BED line while calculating MD5: {line!r}")
+            md5_hash.update(f"{fields[0]}\t{fields[1]}\t{fields[2]}\n".encode("utf-8"))
 
     return md5_hash.hexdigest()

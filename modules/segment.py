@@ -6,7 +6,12 @@ from collections import defaultdict
 from pathlib import Path
 import numpy as np
 import subprocess
-from scipy.special import logsumexp
+from modules.utils import (
+    atomic_output_path,
+    stage_manifest_matches,
+    update_stage_manifest,
+    validate_delimited_file,
+)
 
 #from modules.hmm import calculate_positional_mean_variance, CustomHMM
 
@@ -16,7 +21,7 @@ from modules.hmmnb import calculate_positional_mean_variance, CustomHMM
 
 def custom_hmm_seg(sample_list, analysis_dict):
     """ """
-    obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
+    obs_dict = None
 
     for sample in sample_list:
 
@@ -40,71 +45,171 @@ def custom_hmm_seg(sample_list, analysis_dict):
             Path(sample.sample_folder) / segment_file_map_name
         )
         sample.add("segment_file_map", segment_file_map)
-        if os.path.isfile(segment_file):
+        segment_metadata = {
+            "chromosomes": len(chr_dict),
+            "confidence_schema": 2,
+        }
+        segment_outputs = [
+            segment_file,
+            segment_file_extended,
+            segment_file_map,
+        ]
+        segment_outputs_valid = (
+            not analysis_dict.get("force", False)
+            and stage_manifest_matches(
+                analysis_dict["output_dir"],
+                f"segmentation:{sample.name}",
+                segment_outputs,
+                input_paths=[sample.ratio_file],
+                metadata=segment_metadata,
+            )
+            and
+            validate_delimited_file(
+                segment_file,
+                min_columns=8,
+                min_data_rows=1,
+                has_header=False,
+            )
+            and validate_delimited_file(
+                segment_file_extended,
+                min_columns=11,
+                min_data_rows=1,
+                has_header=False,
+            )
+            and validate_delimited_file(
+                segment_file_map,
+                min_columns=10,
+                min_data_rows=1,
+                has_header=False,
+            )
+        )
+        if segment_outputs_valid:
+            logging.info(
+                f" INFO: Reusing validated segmentation outputs for {sample.name}"
+            )
             continue
-
-        m = open(segment_file_map, "w")
-        o = open(segment_file, "w")
-        p = open(segment_file_extended, "w")
 
         msg = f" INFO: segmenting sample {sample.name}"
         logging.info(msg)
+        if obs_dict is None:
+            obs_dict = calculate_positional_mean_variance(sample_list, analysis_dict)
 
-        for chr in chr_dict:
+        with atomic_output_path(segment_file) as segment_tmp, atomic_output_path(
+            segment_file_extended
+        ) as extended_tmp, atomic_output_path(segment_file_map) as map_tmp:
+            with open(segment_tmp, "w", encoding="utf-8") as segment_handle, open(
+                extended_tmp, "w", encoding="utf-8"
+            ) as extended_handle, open(map_tmp, "w", encoding="utf-8") as map_handle:
+                for chromosome in chr_dict:
+                    model = CustomHMM(obs_dict, sample.name, chromosome)
 
-            model = CustomHMM(obs_dict, sample.name, chr)
+                    dispersions = model.fit_dispersion(max_iter=10, tol=1e-3)
+                    model.forward()
+                    states, _transition_scores = model.decode()
+                    posteriors = model.posterior_decoding()
 
-            dispersions = model.fit_dispersion(max_iter=10, tol=1e-3)
-            model.forward()
-            msg = f" INFO: {sample.name} {chr} dispersion_values {dispersions}"
-            print(msg)
+                    # Calculate MAP estimates
+                    _, map_probabilities = model.calculate_map()
+                    log_likelihoods = model.compute_log_likelihood()
 
-            states, phred_scores = model.decode()
-            posteriors = model.posterior_decoding()
+                    state_posteriors = []
+                    for jdx, item in enumerate(chr_dict[chromosome]):
+                        state = int(states[jdx])
+                        posterior_row = np.asarray(posteriors[jdx])
+                        if posterior_row.ndim == 0:
+                            state_posterior = float(posterior_row)
+                        else:
+                            state_posterior = float(posterior_row[state])
+                        state_posterior = min(max(state_posterior, 0.0), 1.0)
+                        state_posteriors.append(state_posterior)
+                        map_handle.write(
+                            f"{item['region']}\t{str(log_likelihoods[jdx])}\t"
+                            f"{state}\t{state_posterior:.6f}\n"
+                        )
 
-            # Calculate MAP estimates
-            _, map_probabilities = model.calculate_map()
-            log_likelihoods = model.compute_log_likelihood()
-            
-            # Output results
-            for jdx, item in enumerate(chr_dict[chr]):
-                # chr15	48704765	48704940	NM_000138_64_65;FBN1	52.0	100.0	-0.813	[-4.040678, 1.361648, -2.714965, -16.251632, -18.420681]	4	0.6206
-                # Convert log likelihoods to a probability vector:
-                logL_vector = np.array(log_likelihoods[jdx])
-                prob_vector = np.exp(logL_vector - logsumexp(logL_vector))
-                most_state = np.argmax(prob_vector)
-                most_prob = prob_vector[most_state]
-                
-                m.write(f"{item['region']}\t{str(log_likelihoods[jdx])}\t{most_state}\t{most_prob:.4f}"+"\n")
-            unmerged_list = []
-            for idx, item in enumerate(chr_dict[chr]):
-                msg = f" INFO: Segment item={item} states={states} idx={idx}"
-                print(msg)
-                state = states[idx]
-                phred = phred_scores[idx][int(state)]              
-                tmp = item["region"].split("\t")
-                data_dict = {
-                    "chr": tmp[0],
-                    "start": tmp[1],
-                    "end": tmp[2],
-                    "region": tmp[3],
-                    "gc": tmp[4],
-                    "map": posteriors[idx],
-                    "log2_ratio": tmp[6],
-                    "state": str(state),
-                    "phred": phred
-                }
-                unmerged_list.append(data_dict)
-                p.write(item["region"] + "\t" + str(state) + "\t" + str(map_probabilities[idx])+ "\t" + str(state) + "\t" + str(posteriors[idx]) + "\n")
-            merged_list = merge_segments(unmerged_list)
-            for item in merged_list:
-                out_list = []
-                for val in item:
-                    out_list.append(str(item[val]))
-                o.write("\t".join(out_list) + "\n")  
-        o.close()
-        p.close()
-        m.close()
+                    unmerged_list = []
+                    for idx, item in enumerate(chr_dict[chromosome]):
+                        state = states[idx]
+                        state_posterior = state_posteriors[idx]
+                        tmp = item["region"].split("\t")
+                        data_dict = {
+                            "chr": tmp[0],
+                            "start": tmp[1],
+                            "end": tmp[2],
+                            "region": tmp[3],
+                            "gc": tmp[4],
+                            "map": posteriors[idx],
+                            "log2_ratio": tmp[6],
+                            "state": str(state),
+                            "hmm_posterior": state_posterior,
+                        }
+                        unmerged_list.append(data_dict)
+                        extended_handle.write(
+                            item["region"]
+                            + "\t"
+                            + str(state)
+                            + "\t"
+                            + str(map_probabilities[idx])
+                            + "\t"
+                            + str(state)
+                            + "\t"
+                            + str(posteriors[idx])
+                            + "\n"
+                        )
+
+                    merged_list = merge_segments(unmerged_list)
+                    for item in merged_list:
+                        segment_handle.write(
+                            "\t".join(str(item[value]) for value in item) + "\n"
+                        )
+
+                    state_values, state_counts = np.unique(states, return_counts=True)
+                    state_summary = ", ".join(
+                        f"{int(state)}:{int(count)}"
+                        for state, count in zip(state_values, state_counts)
+                    )
+                    logging.info(
+                        " INFO: Segmented %s %s: targets=%d segments=%d "
+                        "states={%s} dispersions=%s",
+                        sample.name,
+                        chromosome,
+                        len(chr_dict[chromosome]),
+                        len(merged_list),
+                        state_summary,
+                        np.asarray(dispersions).round(6).tolist(),
+                    )
+
+            if not (
+                validate_delimited_file(
+                    segment_tmp,
+                    min_columns=8,
+                    min_data_rows=1,
+                    has_header=False,
+                )
+                and validate_delimited_file(
+                    extended_tmp,
+                    min_columns=11,
+                    min_data_rows=1,
+                    has_header=False,
+                )
+                and validate_delimited_file(
+                    map_tmp,
+                    min_columns=10,
+                    min_data_rows=1,
+                    has_header=False,
+                )
+            ):
+                raise RuntimeError(
+                    f"Segmentation outputs failed validation for {sample.name}"
+                )
+
+        update_stage_manifest(
+            analysis_dict["output_dir"],
+            f"segmentation:{sample.name}",
+            segment_outputs,
+            metadata=segment_metadata,
+            input_paths=[sample.ratio_file],
+        )
 
     return sample_list
 
@@ -129,7 +234,7 @@ def merge_segments(unmerged_list):
             max_end = 0
             region_list = []
             ratio_list = []
-            phred_list = []
+            posterior_list = []
             for item in merging_items:
                 if int(item["start"]) < min_start:
                     min_start = int(item["start"])
@@ -137,10 +242,9 @@ def merge_segments(unmerged_list):
                     max_end = int(item["end"])
                 ratio_list.append(float(item["log2_ratio"]))
                 region_list.append(item["region"])
-                phred_list.append(item["phred"])
+                posterior_list.append(item["hmm_posterior"])
 
-            # Compute average posterior probability
-            mean_phred = np.mean(phred_list)  
+            mean_posterior = np.mean(posterior_list)
             mean_ratio = round(np.median(ratio_list), 3)
             new_segment = {
                 "chr": first_dict["chr"],
@@ -150,7 +254,7 @@ def merge_segments(unmerged_list):
                 "n_regions": str(len(region_list)),
                 "log2_ratio": mean_ratio,
                 "state": first_dict["state"],
-                "phred": mean_phred
+                "hmm_posterior": mean_posterior,
             }
             merged_list.append(new_segment)
             first_dict = region
@@ -163,7 +267,7 @@ def merge_segments(unmerged_list):
         max_end = 0
         region_list = []
         ratio_list = []
-        phred_list = []
+        posterior_list = []
 
         for item in merging_items:
             if int(item["start"]) < min_start:
@@ -173,9 +277,9 @@ def merge_segments(unmerged_list):
 
             ratio_list.append(float(item["log2_ratio"]))
             region_list.append(item["region"])
-            phred_list.append(item["phred"])
+            posterior_list.append(item["hmm_posterior"])
 
-        mean_phred = np.mean(phred_list)  
+        mean_posterior = np.mean(posterior_list)
         mean_ratio = round(np.median(ratio_list), 3)
         new_segment = {
             "chr": first_dict["chr"],
@@ -185,7 +289,7 @@ def merge_segments(unmerged_list):
             "n_regions": str(len(region_list)),
             "log2_ratio": mean_ratio,
             "state": first_dict["state"],
-            "phred": mean_phred
+            "hmm_posterior": mean_posterior,
         }
         merged_list.append(new_segment)
 
