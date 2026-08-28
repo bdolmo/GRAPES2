@@ -16,7 +16,12 @@ ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /usr/src/app/GRAPES2
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    # Cython/pip/setuptools/wheel are only needed to build packages during
+    # install, not at runtime, and the app never imports Cython directly.
+    pip uninstall -y --no-input Cython pip setuptools wheel && \
+    find /opt/venv -type d -name "__pycache__" -prune -exec rm -rf {} + && \
+    find /opt/venv -type d \( -name "tests" -o -name "test" \) -prune -exec rm -rf {} +
 
 ########################################################################
 # Runtime: slim image with only what's needed to execute GRAPES2.

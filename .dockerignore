@@ -15,6 +15,24 @@ venv
 .venv
 *.egg-info
 
+# Build-only C++ artifacts: GRAPES and TargetDepth are statically linked
+# (verified with ldd), so the SeqLib/htslib source+build trees aren't
+# needed at runtime. bin/offtarget and bin/samtools are unused by the
+# Python pipeline (verified: never referenced anywhere in modules/*.py).
+bin/SeqLib
+bin/htslib
+bin/offtarget
+bin/samtools
+bin/grapes_sv/*.o
+bin/grapes_sv/src
+bin/grapes_sv/test.txt
+bin/TargetDepth/*.o
+bin/TargetDepth/src
+bin/TargetDepth/LICENSE.txt
+bin/TargetDepth/README
+bin/TargetDepth/targetDepth.pl
+bin/TargetDepth/list_bams.txt
+
 test_dataset
 test_lic
 test_multiple
